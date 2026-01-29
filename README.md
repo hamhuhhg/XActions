@@ -1,6 +1,6 @@
 # ⚡ XActions
 
-### X/Twitter Automation That Actually Works
+### X/Twitter Automation That Actually Works 
 
 [![MIT License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![npm version](https://img.shields.io/npm/v/xactions.svg)](https://www.npmjs.com/package/xactions)
