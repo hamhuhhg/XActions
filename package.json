@@ -22,8 +22,8 @@
     "xactions": "./src/cli/index.js"
   },
   "scripts": {
-    "dev": "NODE_ENV=development nodemon api/server.js",
-    "start": "NODE_ENV=production node api/server.js",
+    "dev": "cross-env NODE_ENV=development nodemon api/server.js",
+    "start": "cross-env NODE_ENV=production node api/server.js",
     "cli": "node src/cli/index.js",
     "mcp": "node src/mcp/server.js",
     "worker": "node api/services/jobQueue.js",
@@ -72,6 +72,7 @@
     "viem": "^2.0.0"
   },
   "devDependencies": {
+    "cross-env": "^7.0.3",
     "nodemon": "^3.0.2",
     "supertest": "^6.3.4",
     "vitest": "^1.6.1"

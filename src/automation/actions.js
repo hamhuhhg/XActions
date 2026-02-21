@@ -10,7 +10,7 @@
 
 window.XActions = window.XActions || {};
 
-window.XActions = (() => {
+Object.assign(window.XActions, (() => {
   const Core = window.XActions?.Core;
   if (!Core) {
     console.error('❌ Core module not loaded! Paste core.js first.');
@@ -28,7 +28,7 @@ window.XActions = (() => {
     tweetText: '[data-testid="tweetText"]',
     tweetLink: 'a[href*="/status/"]',
     quoteTweet: '[data-testid="tweet"] [data-testid="tweet"]',
-    
+
     // === Compose/Input ===
     tweetTextarea: '[data-testid="tweetTextarea_0"]',
     tweetButton: '[data-testid="tweetButton"]',
@@ -37,52 +37,52 @@ window.XActions = (() => {
     dmTextarea: '[data-testid="dmComposerTextInput"]',
     dmSendButton: '[data-testid="dmComposerSendButton"]',
     searchInput: '[data-testid="SearchBox_Search_Input"]',
-    
+
     // === Action Buttons ===
     likeButton: '[data-testid="like"]',
     unlikeButton: '[data-testid="unlike"]',
     retweetButton: '[data-testid="retweet"]',
     unretweetButton: '[data-testid="unretweet"]',
     replyButton: '[data-testid="reply"]',
-    shareButton: '[data-testid="share"]', 
+    shareButton: '[data-testid="share"]',
     bookmarkButton: '[data-testid="bookmark"]',
     removeBookmark: '[data-testid="removeBookmark"]',
-    
+
     // === Follow/Unfollow ===
     followButton: '[data-testid$="-follow"]',
     unfollowButton: '[data-testid$="-unfollow"]',
     followingButton: '[data-testid="placementTracking"] [role="button"]',
-    
+
     // === Dropdown/Menu Actions ===
     caret: '[data-testid="caret"]',
     menuItem: '[role="menuitem"]',
     confirmButton: '[data-testid="confirmationSheetConfirm"]',
     cancelButton: '[data-testid="confirmationSheetCancel"]',
-    
+
     // === User Elements ===
     userCell: '[data-testid="UserCell"]',
     userAvatar: '[data-testid="UserAvatar-Container"]',
     userName: '[data-testid="User-Name"]',
     userDescription: '[data-testid="UserDescription"]',
     userFollowIndicator: '[data-testid="userFollowIndicator"]',
-    
+
     // === Profile Elements ===
     profileHeader: '[data-testid="UserProfileHeader_Items"]',
     editProfileButton: '[data-testid="editProfileButton"]',
     userProfileSchema: '[data-testid="UserProfileSchema"]',
-    
+
     // === Navigation ===
     primaryColumn: '[data-testid="primaryColumn"]',
     sidebarColumn: '[data-testid="sidebarColumn"]',
     timeline: 'section[role="region"]',
     tabList: '[role="tablist"]',
     backButton: '[data-testid="app-bar-back"]',
-    
+
     // === Modals/Dialogs ===
     modal: '[data-testid="modal"]',
     sheetDialog: '[data-testid="sheetDialog"]',
     toast: '[data-testid="toast"]',
-    
+
     // === Media ===
     mediaUpload: 'input[data-testid="fileInput"]',
     gifButton: '[data-testid="gifyButton"]',
@@ -90,24 +90,24 @@ window.XActions = (() => {
     pollButton: '[data-testid="pollButton"]',
     scheduleButton: '[data-testid="scheduledButton"]',
     locationButton: '[data-testid="geoButton"]',
-    
+
     // === Lists ===
     listContainer: '[data-testid="list"]',
     listItem: '[data-testid="listItem"]',
-    
+
     // === DM Elements ===
     dmConversation: '[data-testid="conversation"]',
     dmMessage: '[data-testid="messageEntry"]',
     dmInbox: '[data-testid="DMDrawer"]',
-    
+
     // === Notifications ===
     notification: '[data-testid="notification"]',
     notificationCell: '[data-testid="cellInnerDiv"]',
-    
+
     // === Communities ===
     communityCard: '[data-testid="CommunityCard"]',
     communityHeader: '[data-testid="communityHeader"]',
-    
+
     // === Spaces ===
     spaceBar: '[data-testid="SpaceBar"]',
     spaceCard: '[data-testid="SpaceCard"]',
@@ -119,112 +119,196 @@ window.XActions = (() => {
   const tweet = {
     // Post a new tweet
     post: async (text, options = {}) => {
+      console.log(`[actions.js] Starting tweet.post for text: "${text.substring(0, 30)}..."`);
       log(`Posting tweet: "${text.substring(0, 30)}..."`, 'action');
-      
+
       // Navigate to compose if needed
-      const composeButton = document.querySelector('[data-testid="SideNav_NewTweet_Button"]');
-      if (composeButton && !document.querySelector(SEL.tweetTextarea)) {
-        await clickElement(composeButton);
-        await sleep(1000);
+      if (!document.querySelector(SEL.tweetTextarea)) {
+        console.log(`[actions.js] Textarea not found immediately. Trying methods to open composer...`);
+
+        // Method 1: Click the sidebar Tweet button
+        const composeSelectors = [
+          '[data-testid="SideNav_NewTweet_Button"]',
+          'a[href="/compose/tweet"]',
+          '[aria-label="Post"][role="button"]',
+          '[aria-label="Tweet"][role="button"]',
+          '[data-testid="AppTabBar_Tweet_Button"]'
+        ];
+
+        let composeBtn = null;
+        for (const selector of composeSelectors) {
+          composeBtn = document.querySelector(selector);
+          if (composeBtn) break;
+        }
+
+        if (composeBtn) {
+          console.log(`[actions.js] Found compose button, clicking it`);
+          await clickElement(composeBtn);
+        } else {
+          console.log(`[actions.js] Compose button not found, dispatching 'n' keydown event`);
+          document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'n', code: 'KeyN', keyCode: 78, bubbles: true }));
+        }
+        await sleep(1500);
       }
-      
-      const textarea = await waitForElement(SEL.tweetTextarea);
+
+      console.log(`[actions.js] Waiting for textarea to appear...`);
+
+      const textareaSelectors = [
+        SEL.tweetTextarea,
+        '[data-testid="tweetTextarea_0"]',
+        '.public-DraftEditor-content',
+        '[aria-label="Tweet text"]',
+        '[aria-label="Post text"]'
+      ];
+
+      let textarea = null;
+      // Wait up to 5 seconds for any of the text areas to appear
+      for (let i = 0; i < 10; i++) {
+        for (const selector of textareaSelectors) {
+          textarea = document.querySelector(selector);
+          if (textarea) break;
+        }
+        if (textarea) break;
+        await sleep(500);
+      }
+
+      // Fallback: Twitter often auto-focuses the text box when the modal opens
+      if (!textarea && document.activeElement && document.activeElement.getAttribute('contenteditable') === 'true') {
+        console.log(`[actions.js] Using active focused element as textarea fallback`);
+        textarea = document.activeElement;
+      }
+
       if (!textarea) {
         log('Could not find tweet textarea', 'error');
+        console.log(`[actions.js] ERROR: textarea not found.`);
+        // To help debug, log what's actually on the screen
+        console.log(`[actions.js] Current DOM snapshot:`, document.body.innerHTML.substring(0, 500) + '...');
         return false;
       }
-      
+
+      console.log(`[actions.js] Textarea found. Typing text...`);
       await typeText(textarea, text);
       await sleep(500);
-      
+
       // Handle media if provided
       if (options.mediaUrl) {
         // Note: Browser can't upload files directly, but can trigger input
         log('Media upload requires manual file selection', 'warning');
       }
-      
+
       if (!options.draft) {
-        const postButton = document.querySelector(SEL.tweetButton) || 
-                          document.querySelector(SEL.tweetButtonInline);
-        if (postButton && !postButton.disabled) {
-          await clickElement(postButton);
-          log('Tweet posted!', 'success');
-          return true;
+        console.log(`[actions.js] Looking for post button...`);
+
+        // Wait up to 3 seconds for the post button to become enabled after typing
+        let postButton = null;
+        for (let i = 0; i < 6; i++) {
+          postButton = document.querySelector(SEL.tweetButton) || document.querySelector(SEL.tweetButtonInline);
+
+          // X.com sometimes has multiple post buttons (e.g. background page and modal)
+          // Get all buttons and find the one that says "Post" and isn't disabled
+          const allBtn = Array.from(document.querySelectorAll('[data-testid="tweetButton"], [data-testid="tweetButtonInline"]'));
+
+          const activeBtn = allBtn.find(b => !b.disabled);
+          if (activeBtn) {
+            postButton = activeBtn;
+            break;
+          }
+          console.log(`[actions.js] Waiting for button to enable... try ${i + 1}`);
+          await sleep(500);
+        }
+
+        if (postButton) {
+          console.log(`[actions.js] Post button found. Disabled? ${postButton.disabled}`);
+          if (!postButton.disabled) {
+            console.log(`[actions.js] Clicking post button.`);
+            await clickElement(postButton);
+            log('Tweet posted!', 'success');
+            return true;
+          } else {
+            console.log(`[actions.js] ERROR: Post button is disabled.`);
+            // Force click anyway
+            console.log(`[actions.js] Force clicking disabled button via DOM`);
+            postButton.removeAttribute('disabled');
+            postButton.click();
+            return true;
+          }
+        } else {
+          console.log(`[actions.js] ERROR: Post button not found using selectors: ${SEL.tweetButton} or ${SEL.tweetButtonInline}`);
         }
       }
-      
+
       return false;
     },
-    
+
     // Reply to a tweet
     reply: async (tweetElement, text) => {
       log(`Replying: "${text.substring(0, 30)}..."`, 'action');
-      
+
       const replyBtn = tweetElement.querySelector(SEL.replyButton);
       if (!replyBtn) return false;
-      
+
       await clickElement(replyBtn);
       await sleep(800);
-      
+
       const textarea = await waitForElement(SEL.replyTextarea);
       if (!textarea) return false;
-      
+
       await typeText(textarea, text);
       await sleep(500);
-      
+
       const postButton = document.querySelector('[data-testid="tweetButton"]');
       if (postButton && !postButton.disabled) {
         await clickElement(postButton);
         log('Reply posted!', 'success');
         return true;
       }
-      
+
       return false;
     },
-    
+
     // Quote tweet
     quote: async (tweetElement, text) => {
       log(`Quote tweeting: "${text.substring(0, 30)}..."`, 'action');
-      
+
       const retweetBtn = tweetElement.querySelector(SEL.retweetButton);
       if (!retweetBtn) return false;
-      
+
       await clickElement(retweetBtn);
       await sleep(500);
-      
+
       // Click "Quote" option
       const quoteOption = await waitForElement('[data-testid="Dropdown"] [role="menuitem"]:nth-child(2)');
       if (!quoteOption) return false;
-      
+
       await clickElement(quoteOption);
       await sleep(800);
-      
+
       const textarea = await waitForElement(SEL.tweetTextarea);
       if (!textarea) return false;
-      
+
       await typeText(textarea, text);
       await sleep(500);
-      
+
       const postButton = document.querySelector(SEL.tweetButton);
       if (postButton && !postButton.disabled) {
         await clickElement(postButton);
         log('Quote tweet posted!', 'success');
         return true;
       }
-      
+
       return false;
     },
-    
+
     // Delete a tweet (must be on your own tweet)
     delete: async (tweetElement) => {
       log('Deleting tweet...', 'action');
-      
+
       const caret = tweetElement.querySelector(SEL.caret);
       if (!caret) return false;
-      
+
       await clickElement(caret);
       await sleep(500);
-      
+
       // Find delete option
       const menuItems = document.querySelectorAll(SEL.menuItem);
       let deleteItem = null;
@@ -234,32 +318,32 @@ window.XActions = (() => {
           break;
         }
       }
-      
+
       if (!deleteItem) return false;
-      
+
       await clickElement(deleteItem);
       await sleep(500);
-      
+
       const confirmBtn = await waitForElement(SEL.confirmButton);
       if (confirmBtn) {
         await clickElement(confirmBtn);
         log('Tweet deleted!', 'success');
         return true;
       }
-      
+
       return false;
     },
-    
+
     // Pin a tweet to profile
     pin: async (tweetElement) => {
       log('Pinning tweet...', 'action');
-      
+
       const caret = tweetElement.querySelector(SEL.caret);
       if (!caret) return false;
-      
+
       await clickElement(caret);
       await sleep(500);
-      
+
       const menuItems = document.querySelectorAll(SEL.menuItem);
       let pinItem = null;
       for (const item of menuItems) {
@@ -268,21 +352,21 @@ window.XActions = (() => {
           break;
         }
       }
-      
+
       if (pinItem) {
         await clickElement(pinItem);
         await sleep(500);
-        
+
         const confirmBtn = await waitForElement(SEL.confirmButton);
         if (confirmBtn) await clickElement(confirmBtn);
-        
+
         log('Tweet pinned!', 'success');
         return true;
       }
-      
+
       return false;
     },
-    
+
     // Get tweet ID from element
     getId: (tweetElement) => {
       const link = tweetElement.querySelector(SEL.tweetLink);
@@ -292,21 +376,21 @@ window.XActions = (() => {
       }
       return null;
     },
-    
+
     // Get all visible tweets
     getAll: () => {
       return Array.from(document.querySelectorAll(SEL.tweet));
     },
-    
+
     // Thread: Post multiple tweets as a thread
     thread: async (tweets) => {
       log(`Posting thread of ${tweets.length} tweets...`, 'action');
-      
+
       for (let i = 0; i < tweets.length; i++) {
         await tweet.post(tweets[i], { addToThread: i > 0 });
         await randomDelay(2000, 4000);
       }
-      
+
       log('Thread posted!', 'success');
       return true;
     },
@@ -323,30 +407,30 @@ window.XActions = (() => {
         log('Already liked or button not found', 'warning');
         return false;
       }
-      
+
       await clickElement(likeBtn);
       log('Liked!', 'success');
       return true;
     },
-    
+
     // Unlike a tweet
     unlike: async (tweetElement) => {
       const unlikeBtn = tweetElement.querySelector(SEL.unlikeButton);
       if (!unlikeBtn) return false;
-      
+
       await clickElement(unlikeBtn);
       log('Unliked!', 'success');
       return true;
     },
-    
+
     // Retweet
     retweet: async (tweetElement) => {
       const rtBtn = tweetElement.querySelector(SEL.retweetButton);
       if (!rtBtn) return false;
-      
+
       await clickElement(rtBtn);
       await sleep(500);
-      
+
       // Click first option (Repost)
       const repostOption = await waitForElement('[data-testid="retweetConfirm"]');
       if (repostOption) {
@@ -354,36 +438,36 @@ window.XActions = (() => {
         log('Retweeted!', 'success');
         return true;
       }
-      
+
       return false;
     },
-    
+
     // Undo retweet
     unretweet: async (tweetElement) => {
       const unrtBtn = tweetElement.querySelector(SEL.unretweetButton);
       if (!unrtBtn) return false;
-      
+
       await clickElement(unrtBtn);
       await sleep(500);
-      
+
       const confirmOption = await waitForElement('[data-testid="unretweetConfirm"]');
       if (confirmOption) {
         await clickElement(confirmOption);
         log('Unretweeted!', 'success');
         return true;
       }
-      
+
       return false;
     },
-    
+
     // Bookmark a tweet
     bookmark: async (tweetElement) => {
       const shareBtn = tweetElement.querySelector(SEL.shareButton);
       if (!shareBtn) return false;
-      
+
       await clickElement(shareBtn);
       await sleep(500);
-      
+
       const menuItems = document.querySelectorAll(SEL.menuItem);
       for (const item of menuItems) {
         if (item.textContent.toLowerCase().includes('bookmark')) {
@@ -392,10 +476,10 @@ window.XActions = (() => {
           return true;
         }
       }
-      
+
       return false;
     },
-    
+
     // Remove bookmark
     unbookmark: async (tweetElement) => {
       const removeBtn = tweetElement.querySelector(SEL.removeBookmark);
@@ -404,26 +488,26 @@ window.XActions = (() => {
         log('Bookmark removed!', 'success');
         return true;
       }
-      
+
       // Try via share menu
       return await engage.bookmark(tweetElement); // Toggle
     },
-    
+
     // Add to list via tweet menu
     addToList: async (tweetElement, listName) => {
       const caret = tweetElement.querySelector(SEL.caret);
       if (!caret) return false;
-      
+
       await clickElement(caret);
       await sleep(500);
-      
+
       const menuItems = document.querySelectorAll(SEL.menuItem);
       for (const item of menuItems) {
-        if (item.textContent.toLowerCase().includes('add') && 
-            item.textContent.toLowerCase().includes('list')) {
+        if (item.textContent.toLowerCase().includes('add') &&
+          item.textContent.toLowerCase().includes('list')) {
           await clickElement(item);
           await sleep(800);
-          
+
           // Find and click the specific list
           if (listName) {
             const lists = document.querySelectorAll('[data-testid="listItem"]');
@@ -438,20 +522,20 @@ window.XActions = (() => {
           return true;
         }
       }
-      
+
       return false;
     },
-    
+
     // Report a tweet
     report: async (tweetElement, reason) => {
       log('Opening report dialog...', 'action');
-      
+
       const caret = tweetElement.querySelector(SEL.caret);
       if (!caret) return false;
-      
+
       await clickElement(caret);
       await sleep(500);
-      
+
       const menuItems = document.querySelectorAll(SEL.menuItem);
       for (const item of menuItems) {
         if (item.textContent.toLowerCase().includes('report')) {
@@ -460,18 +544,18 @@ window.XActions = (() => {
           return true;
         }
       }
-      
+
       return false;
     },
-    
+
     // Copy link to tweet
     copyLink: async (tweetElement) => {
       const shareBtn = tweetElement.querySelector(SEL.shareButton);
       if (!shareBtn) return false;
-      
+
       await clickElement(shareBtn);
       await sleep(500);
-      
+
       const menuItems = document.querySelectorAll(SEL.menuItem);
       for (const item of menuItems) {
         if (item.textContent.toLowerCase().includes('copy link')) {
@@ -480,24 +564,24 @@ window.XActions = (() => {
           return true;
         }
       }
-      
+
       return false;
     },
-    
+
     // Share via DM
     shareViaDM: async (tweetElement, username) => {
       const shareBtn = tweetElement.querySelector(SEL.shareButton);
       if (!shareBtn) return false;
-      
+
       await clickElement(shareBtn);
       await sleep(500);
-      
+
       const menuItems = document.querySelectorAll(SEL.menuItem);
       for (const item of menuItems) {
         if (item.textContent.toLowerCase().includes('send via direct message')) {
           await clickElement(item);
           await sleep(800);
-          
+
           // Type username to search
           if (username) {
             const searchInput = await waitForElement('input[placeholder*="Search"]');
@@ -505,28 +589,28 @@ window.XActions = (() => {
               searchInput.value = username;
               searchInput.dispatchEvent(new Event('input', { bubbles: true }));
               await sleep(1000);
-              
+
               // Click first result
               const result = await waitForElement('[data-testid="TypeaheadUser"]');
               if (result) await clickElement(result);
             }
           }
-          
+
           return true;
         }
       }
-      
+
       return false;
     },
-    
+
     // Embed tweet (get embed code)
     embed: async (tweetElement) => {
       const shareBtn = tweetElement.querySelector(SEL.shareButton);
       if (!shareBtn) return false;
-      
+
       await clickElement(shareBtn);
       await sleep(500);
-      
+
       const menuItems = document.querySelectorAll(SEL.menuItem);
       for (const item of menuItems) {
         if (item.textContent.toLowerCase().includes('embed')) {
@@ -535,60 +619,60 @@ window.XActions = (() => {
           return true;
         }
       }
-      
+
       return false;
     },
-    
+
     // View tweet analytics (if available)
     viewAnalytics: async (tweetElement) => {
       const caret = tweetElement.querySelector(SEL.caret);
       if (!caret) return false;
-      
+
       await clickElement(caret);
       await sleep(500);
-      
+
       const menuItems = document.querySelectorAll(SEL.menuItem);
       for (const item of menuItems) {
         if (item.textContent.toLowerCase().includes('analytics') ||
-            item.textContent.toLowerCase().includes('view post engagements')) {
+          item.textContent.toLowerCase().includes('view post engagements')) {
           await clickElement(item);
           log('Analytics opened', 'success');
           return true;
         }
       }
-      
+
       return false;
     },
-    
+
     // Request Community Note
     requestNote: async (tweetElement) => {
       const caret = tweetElement.querySelector(SEL.caret);
       if (!caret) return false;
-      
+
       await clickElement(caret);
       await sleep(500);
-      
+
       const menuItems = document.querySelectorAll(SEL.menuItem);
       for (const item of menuItems) {
         if (item.textContent.toLowerCase().includes('note') ||
-            item.textContent.toLowerCase().includes('community note')) {
+          item.textContent.toLowerCase().includes('community note')) {
           await clickElement(item);
           log('Community note dialog opened', 'success');
           return true;
         }
       }
-      
+
       return false;
     },
-    
+
     // Highlight tweet (X Premium)
     highlight: async (tweetElement) => {
       const caret = tweetElement.querySelector(SEL.caret);
       if (!caret) return false;
-      
+
       await clickElement(caret);
       await sleep(500);
-      
+
       const menuItems = document.querySelectorAll(SEL.menuItem);
       for (const item of menuItems) {
         if (item.textContent.toLowerCase().includes('highlight')) {
@@ -597,7 +681,7 @@ window.XActions = (() => {
           return true;
         }
       }
-      
+
       return false;
     },
   };
@@ -609,7 +693,7 @@ window.XActions = (() => {
     // Follow a user
     follow: async (target) => {
       let button;
-      
+
       if (typeof target === 'string') {
         window.location.href = `https://x.com/${target}`;
         await sleep(2000);
@@ -617,21 +701,21 @@ window.XActions = (() => {
       } else {
         button = target.querySelector(SEL.followButton);
       }
-      
+
       if (!button) {
         log('Follow button not found (already following?)', 'warning');
         return false;
       }
-      
+
       await clickElement(button);
       log(`Followed!`, 'success');
       return true;
     },
-    
+
     // Unfollow a user
     unfollow: async (target) => {
       let button;
-      
+
       if (typeof target === 'string') {
         window.location.href = `https://x.com/${target}`;
         await sleep(2000);
@@ -639,44 +723,44 @@ window.XActions = (() => {
       } else {
         button = target.querySelector(SEL.unfollowButton);
       }
-      
+
       if (!button) {
         log('Unfollow button not found', 'warning');
         return false;
       }
-      
+
       await clickElement(button);
       await sleep(500);
-      
+
       const confirmBtn = await waitForElement(SEL.confirmButton);
       if (confirmBtn) {
         await clickElement(confirmBtn);
         log(`Unfollowed!`, 'success');
         return true;
       }
-      
+
       return false;
     },
-    
+
     // Block a user
     block: async (username) => {
       log(`Blocking @${username}...`, 'action');
-      
+
       window.location.href = `https://x.com/${username}`;
       await sleep(2000);
-      
+
       const moreButton = await waitForElement('[data-testid="userActions"]');
       if (!moreButton) return false;
-      
+
       await clickElement(moreButton);
       await sleep(500);
-      
+
       const menuItems = document.querySelectorAll(SEL.menuItem);
       for (const item of menuItems) {
         if (item.textContent.toLowerCase().includes('block')) {
           await clickElement(item);
           await sleep(500);
-          
+
           const confirmBtn = await waitForElement(SEL.confirmButton);
           if (confirmBtn) {
             await clickElement(confirmBtn);
@@ -685,45 +769,45 @@ window.XActions = (() => {
           }
         }
       }
-      
+
       return false;
     },
-    
+
     // Unblock a user
     unblock: async (username) => {
       log(`Unblocking @${username}...`, 'action');
-      
+
       window.location.href = `https://x.com/${username}`;
       await sleep(2000);
-      
+
       const unblockBtn = await waitForElement('[data-testid="placementTracking"] [role="button"]');
       if (unblockBtn && unblockBtn.textContent.toLowerCase().includes('blocked')) {
         await clickElement(unblockBtn);
         await sleep(500);
-        
+
         const confirmBtn = await waitForElement(SEL.confirmButton);
         if (confirmBtn) await clickElement(confirmBtn);
-        
+
         log(`Unblocked @${username}!`, 'success');
         return true;
       }
-      
+
       return false;
     },
-    
+
     // Mute a user
     mute: async (username) => {
       log(`Muting @${username}...`, 'action');
-      
+
       window.location.href = `https://x.com/${username}`;
       await sleep(2000);
-      
+
       const moreButton = await waitForElement('[data-testid="userActions"]');
       if (!moreButton) return false;
-      
+
       await clickElement(moreButton);
       await sleep(500);
-      
+
       const menuItems = document.querySelectorAll(SEL.menuItem);
       for (const item of menuItems) {
         if (item.textContent.toLowerCase().includes('mute')) {
@@ -732,23 +816,23 @@ window.XActions = (() => {
           return true;
         }
       }
-      
+
       return false;
     },
-    
+
     // Unmute a user
     unmute: async (username) => {
       log(`Unmuting @${username}...`, 'action');
-      
+
       window.location.href = `https://x.com/${username}`;
       await sleep(2000);
-      
+
       const moreButton = await waitForElement('[data-testid="userActions"]');
       if (!moreButton) return false;
-      
+
       await clickElement(moreButton);
       await sleep(500);
-      
+
       const menuItems = document.querySelectorAll(SEL.menuItem);
       for (const item of menuItems) {
         if (item.textContent.toLowerCase().includes('unmute')) {
@@ -757,23 +841,23 @@ window.XActions = (() => {
           return true;
         }
       }
-      
+
       return false;
     },
-    
+
     // Report a user
     report: async (username) => {
       log(`Reporting @${username}...`, 'action');
-      
+
       window.location.href = `https://x.com/${username}`;
       await sleep(2000);
-      
+
       const moreButton = await waitForElement('[data-testid="userActions"]');
       if (!moreButton) return false;
-      
+
       await clickElement(moreButton);
       await sleep(500);
-      
+
       const menuItems = document.querySelectorAll(SEL.menuItem);
       for (const item of menuItems) {
         if (item.textContent.toLowerCase().includes('report')) {
@@ -782,30 +866,30 @@ window.XActions = (() => {
           return true;
         }
       }
-      
+
       return false;
     },
-    
+
     // Add user to a list
     addToList: async (username, listName) => {
       log(`Adding @${username} to list...`, 'action');
-      
+
       window.location.href = `https://x.com/${username}`;
       await sleep(2000);
-      
+
       const moreButton = await waitForElement('[data-testid="userActions"]');
       if (!moreButton) return false;
-      
+
       await clickElement(moreButton);
       await sleep(500);
-      
+
       const menuItems = document.querySelectorAll(SEL.menuItem);
       for (const item of menuItems) {
-        if (item.textContent.toLowerCase().includes('add') && 
-            item.textContent.toLowerCase().includes('list')) {
+        if (item.textContent.toLowerCase().includes('add') &&
+          item.textContent.toLowerCase().includes('list')) {
           await clickElement(item);
           await sleep(800);
-          
+
           if (listName) {
             const lists = document.querySelectorAll('[role="checkbox"]');
             for (const list of lists) {
@@ -816,56 +900,56 @@ window.XActions = (() => {
               }
             }
           }
-          
+
           const doneBtn = document.querySelector('[data-testid="addToListsButton"]');
           if (doneBtn) await clickElement(doneBtn);
-          
+
           return true;
         }
       }
-      
+
       return false;
     },
-    
+
     // Turn on notifications for user
     notifyOn: async (username) => {
       log(`Turning on notifications for @${username}...`, 'action');
-      
+
       window.location.href = `https://x.com/${username}`;
       await sleep(2000);
-      
+
       const moreButton = await waitForElement('[data-testid="userActions"]');
       if (!moreButton) return false;
-      
+
       await clickElement(moreButton);
       await sleep(500);
-      
+
       const menuItems = document.querySelectorAll(SEL.menuItem);
       for (const item of menuItems) {
         if (item.textContent.toLowerCase().includes('turn on notifications') ||
-            item.textContent.toLowerCase().includes('notify')) {
+          item.textContent.toLowerCase().includes('notify')) {
           await clickElement(item);
           log(`Notifications on for @${username}!`, 'success');
           return true;
         }
       }
-      
+
       return false;
     },
-    
+
     // Turn off notifications for user  
     notifyOff: async (username) => {
       log(`Turning off notifications for @${username}...`, 'action');
-      
+
       window.location.href = `https://x.com/${username}`;
       await sleep(2000);
-      
+
       const moreButton = await waitForElement('[data-testid="userActions"]');
       if (!moreButton) return false;
-      
+
       await clickElement(moreButton);
       await sleep(500);
-      
+
       const menuItems = document.querySelectorAll(SEL.menuItem);
       for (const item of menuItems) {
         if (item.textContent.toLowerCase().includes('turn off notifications')) {
@@ -874,10 +958,10 @@ window.XActions = (() => {
           return true;
         }
       }
-      
+
       return false;
     },
-    
+
     // Navigation helpers
     viewTopics: async (username) => { window.location.href = `https://x.com/${username}/topics`; await sleep(2000); return true; },
     viewLists: async (username) => { window.location.href = `https://x.com/${username}/lists`; await sleep(2000); return true; },
@@ -888,19 +972,19 @@ window.XActions = (() => {
     viewReplies: async (username) => { window.location.href = `https://x.com/${username}/with_replies`; await sleep(2000); return true; },
     viewHighlights: async (username) => { window.location.href = `https://x.com/${username}/highlights`; await sleep(2000); return true; },
     viewArticles: async (username) => { window.location.href = `https://x.com/${username}/articles`; await sleep(2000); return true; },
-    
+
     // Check if user follows you
     followsYou: async (username) => {
       window.location.href = `https://x.com/${username}`;
       await sleep(2000);
       return document.querySelector(SEL.userFollowIndicator) !== null;
     },
-    
+
     // Get user info
     getInfo: async (username) => {
       window.location.href = `https://x.com/${username}`;
       await sleep(2000);
-      
+
       const info = {
         username,
         displayName: document.querySelector('[data-testid="UserName"]')?.textContent || '',
@@ -909,30 +993,30 @@ window.XActions = (() => {
         verified: document.querySelector('[data-testid="icon-verified"]') !== null,
         protected: document.querySelector('[data-testid="icon-lock"]') !== null,
       };
-      
+
       const links = document.querySelectorAll('a[href*="/followers"], a[href*="/following"]');
       links.forEach(link => {
         const text = link.textContent;
         if (link.href.includes('/followers')) info.followers = text;
         else if (link.href.includes('/following')) info.following = text;
       });
-      
+
       return info;
     },
-    
+
     // Restrict user
     restrict: async (username) => {
       log(`Restricting @${username}...`, 'action');
-      
+
       window.location.href = `https://x.com/${username}`;
       await sleep(2000);
-      
+
       const moreButton = await waitForElement('[data-testid="userActions"]');
       if (!moreButton) return false;
-      
+
       await clickElement(moreButton);
       await sleep(500);
-      
+
       const menuItems = document.querySelectorAll(SEL.menuItem);
       for (const item of menuItems) {
         if (item.textContent.toLowerCase().includes('restrict')) {
@@ -941,7 +1025,7 @@ window.XActions = (() => {
           return true;
         }
       }
-      
+
       return false;
     },
   };
@@ -953,43 +1037,43 @@ window.XActions = (() => {
     // Send a DM to user
     send: async (username, message) => {
       log(`Sending DM to @${username}...`, 'action');
-      
+
       window.location.href = `https://x.com/messages`;
       await sleep(2000);
-      
+
       // Click new message button
       const newMsgBtn = await waitForElement('[data-testid="NewDM_Button"]');
       if (newMsgBtn) {
         await clickElement(newMsgBtn);
         await sleep(800);
       }
-      
+
       // Search for user
       const searchInput = await waitForElement('input[placeholder*="Search"]');
       if (searchInput) {
         searchInput.value = username;
         searchInput.dispatchEvent(new Event('input', { bubbles: true }));
         await sleep(1000);
-        
+
         // Click first result
         const userResult = await waitForElement('[data-testid="TypeaheadUser"]');
         if (userResult) {
           await clickElement(userResult);
           await sleep(500);
-          
+
           // Click next
           const nextBtn = await waitForElement('[data-testid="nextButton"]');
           if (nextBtn) await clickElement(nextBtn);
           await sleep(800);
         }
       }
-      
+
       // Type message
       const msgInput = await waitForElement(SEL.dmTextarea);
       if (msgInput) {
         await typeText(msgInput, message);
         await sleep(300);
-        
+
         const sendBtn = document.querySelector(SEL.dmSendButton);
         if (sendBtn) {
           await clickElement(sendBtn);
@@ -997,17 +1081,17 @@ window.XActions = (() => {
           return true;
         }
       }
-      
+
       return false;
     },
-    
+
     // Open DM conversation with user
     open: async (username) => {
       log(`Opening DM with @${username}...`, 'action');
-      
+
       window.location.href = `https://x.com/messages`;
       await sleep(2000);
-      
+
       // Search in conversations
       const conversations = document.querySelectorAll('[data-testid="conversation"]');
       for (const conv of conversations) {
@@ -1017,45 +1101,45 @@ window.XActions = (() => {
           return true;
         }
       }
-      
+
       // If not found, start new conversation
       return await dm.send(username, '');
     },
-    
+
     // Get all conversations
     getConversations: async () => {
       window.location.href = `https://x.com/messages`;
       await sleep(2000);
-      
+
       const conversations = [];
       const convElements = document.querySelectorAll('[data-testid="conversation"]');
-      
+
       for (const conv of convElements) {
         conversations.push({
           element: conv,
           text: conv.textContent,
         });
       }
-      
+
       return conversations;
     },
-    
+
     // Delete a conversation
     deleteConversation: async (conversationElement) => {
       log('Deleting conversation...', 'action');
-      
+
       // Long press or find menu
       const moreBtn = conversationElement.querySelector('[data-testid="caret"]');
       if (moreBtn) {
         await clickElement(moreBtn);
         await sleep(500);
-        
+
         const menuItems = document.querySelectorAll(SEL.menuItem);
         for (const item of menuItems) {
           if (item.textContent.toLowerCase().includes('delete')) {
             await clickElement(item);
             await sleep(500);
-            
+
             const confirmBtn = await waitForElement(SEL.confirmButton);
             if (confirmBtn) {
               await clickElement(confirmBtn);
@@ -1065,25 +1149,25 @@ window.XActions = (() => {
           }
         }
       }
-      
+
       return false;
     },
-    
+
     // Leave a group DM
     leaveGroup: async () => {
       log('Leaving group...', 'action');
-      
+
       const infoBtn = await waitForElement('[data-testid="DMConversationInfoButton"]');
       if (infoBtn) {
         await clickElement(infoBtn);
         await sleep(500);
-        
+
         const menuItems = document.querySelectorAll(SEL.menuItem);
         for (const item of menuItems) {
           if (item.textContent.toLowerCase().includes('leave')) {
             await clickElement(item);
             await sleep(500);
-            
+
             const confirmBtn = await waitForElement(SEL.confirmButton);
             if (confirmBtn) {
               await clickElement(confirmBtn);
@@ -1093,78 +1177,78 @@ window.XActions = (() => {
           }
         }
       }
-      
+
       return false;
     },
-    
+
     // Create group DM
     createGroup: async (usernames, groupName = null) => {
       log(`Creating group DM with ${usernames.length} users...`, 'action');
-      
+
       window.location.href = `https://x.com/messages`;
       await sleep(2000);
-      
+
       const newMsgBtn = await waitForElement('[data-testid="NewDM_Button"]');
       if (newMsgBtn) await clickElement(newMsgBtn);
       await sleep(800);
-      
+
       const searchInput = await waitForElement('input[placeholder*="Search"]');
       if (!searchInput) return false;
-      
+
       for (const username of usernames) {
         searchInput.value = username;
         searchInput.dispatchEvent(new Event('input', { bubbles: true }));
         await sleep(1000);
-        
+
         const userResult = await waitForElement('[data-testid="TypeaheadUser"]');
         if (userResult) {
           await clickElement(userResult);
           await sleep(500);
         }
-        
+
         searchInput.value = '';
       }
-      
+
       const nextBtn = await waitForElement('[data-testid="nextButton"]');
       if (nextBtn) {
         await clickElement(nextBtn);
         log('Group created!', 'success');
         return true;
       }
-      
+
       return false;
     },
-    
+
     // Send image in DM
     sendImage: async () => {
       log('Opening image picker...', 'action');
-      
+
       const mediaBtn = document.querySelector('[data-testid="DMImageButton"]');
       if (mediaBtn) {
         await clickElement(mediaBtn);
         log('Image picker opened - select file manually', 'warning');
         return true;
       }
-      
+
       return false;
     },
-    
+
     // Send GIF in DM
     sendGif: async (searchTerm) => {
       log('Opening GIF picker...', 'action');
-      
+
       const gifBtn = document.querySelector('[data-testid="DMGifButton"]');
       if (gifBtn) {
         await clickElement(gifBtn);
         await sleep(500);
-        
+
         if (searchTerm) {
           const gifSearch = await waitForElement('input[placeholder*="Search"]');
           if (gifSearch) {
             gifSearch.value = searchTerm;
             gifSearch.dispatchEvent(new Event('input', { bubbles: true }));
             await sleep(1000);
-            
+
             // Click first result
             const gifResult = await waitForElement('[data-testid="gif"]');
             if (gifResult) {
@@ -1175,16 +1259,16 @@ window.XActions = (() => {
           }
         }
       }
-      
+
       return false;
     },
-    
+
     // React to a message
     react: async (messageElement, emoji) => {
       // Double-click to react
       messageElement.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
       await sleep(500);
-      
+
       // Select reaction
       const reactions = document.querySelectorAll('[data-testid="reactionEmoji"]');
       for (const reaction of reactions) {
@@ -1194,7 +1278,7 @@ window.XActions = (() => {
           return true;
         }
       }
-      
+
       return false;
     },
   };
@@ -1206,32 +1290,32 @@ window.XActions = (() => {
     // Search for a query
     query: async (query, filter = 'top') => {
       log(`Searching: "${query}"...`, 'action');
-      
+
       const encoded = encodeURIComponent(query);
       const filterParam = filter !== 'top' ? `&f=${filter}` : '';
       window.location.href = `https://x.com/search?q=${encoded}${filterParam}`;
       await sleep(2000);
-      
+
       return true;
     },
-    
+
     // Search filters
     top: async (query) => await search.query(query, 'top'),
     latest: async (query) => await search.query(query, 'live'),
     people: async (query) => await search.query(query, 'user'),
     photos: async (query) => await search.query(query, 'image'),
     videos: async (query) => await search.query(query, 'video'),
-    
+
     // Advanced search operators
     from: async (username) => await search.query(`from:${username}`),
     to: async (username) => await search.query(`to:${username}`),
     mentions: async (username) => await search.query(`@${username}`),
     hashtag: async (tag) => await search.query(`#${tag.replace('#', '')}`),
-    
+
     // Complex search
     advanced: async (options) => {
       const parts = [];
-      
+
       if (options.words) parts.push(options.words);
       if (options.exactPhrase) parts.push(`"${options.exactPhrase}"`);
       if (options.anyWords) parts.push(`(${options.anyWords.split(' ').join(' OR ')})`);
@@ -1256,10 +1340,10 @@ window.XActions = (() => {
       if (options.excludeRetweets) parts.push('-filter:retweets');
       if (options.near) parts.push(`near:${options.near}`);
       if (options.within) parts.push(`within:${options.within}`);
-      
+
       return await search.query(parts.join(' '), options.filter || 'top');
     },
-    
+
     // Get current search results
     getResults: () => {
       return Array.from(document.querySelectorAll(SEL.tweet));
@@ -1278,12 +1362,12 @@ window.XActions = (() => {
     premium: async () => { window.location.href = 'https://x.com/i/premium_sign_up'; await sleep(2000); },
     profile: async (username) => { window.location.href = `https://x.com/${username || 'me'}`; await sleep(2000); },
     settings: async () => { window.location.href = 'https://x.com/settings'; await sleep(2000); },
-    
+
     // Notification tabs
     notifyAll: async () => { window.location.href = 'https://x.com/notifications'; await sleep(2000); },
     notifyVerified: async () => { window.location.href = 'https://x.com/notifications/verified'; await sleep(2000); },
     notifyMentions: async () => { window.location.href = 'https://x.com/notifications/mentions'; await sleep(2000); },
-    
+
     // Timeline tabs
     forYou: async () => {
       await nav.home();
@@ -1305,22 +1389,22 @@ window.XActions = (() => {
         }
       }
     },
-    
+
     // Quick access
     trending: async () => { window.location.href = 'https://x.com/explore/tabs/trending'; await sleep(2000); },
     forYouExplore: async () => { window.location.href = 'https://x.com/explore/tabs/for_you'; await sleep(2000); },
     news: async () => { window.location.href = 'https://x.com/explore/tabs/news'; await sleep(2000); },
     sports: async () => { window.location.href = 'https://x.com/explore/tabs/sports'; await sleep(2000); },
     entertainment: async () => { window.location.href = 'https://x.com/explore/tabs/entertainment'; await sleep(2000); },
-    
+
     // Spaces
     spaces: async () => { window.location.href = 'https://x.com/i/spaces'; await sleep(2000); },
-    
+
     // Scroll
     scrollToTop: () => window.scrollTo({ top: 0, behavior: 'smooth' }),
     scrollToBottom: () => window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }),
     scrollBy: (px) => window.scrollBy({ top: px, behavior: 'smooth' }),
-    
+
     // Back
     back: () => window.history.back(),
     forward: () => window.history.forward(),
@@ -1334,32 +1418,32 @@ window.XActions = (() => {
     // Create a new list
     create: async (name, description = '', isPrivate = false) => {
       log(`Creating list: ${name}...`, 'action');
-      
+
       window.location.href = 'https://x.com/i/lists';
       await sleep(2000);
-      
+
       const createBtn = await waitForElement('[data-testid="createList"]');
       if (createBtn) {
         await clickElement(createBtn);
         await sleep(800);
-        
+
         const nameInput = await waitForElement('input[name="name"]');
         if (nameInput) {
           nameInput.value = name;
           nameInput.dispatchEvent(new Event('input', { bubbles: true }));
         }
-        
+
         const descInput = await waitForElement('textarea[name="description"]');
         if (descInput && description) {
           descInput.value = description;
           descInput.dispatchEvent(new Event('input', { bubbles: true }));
         }
-        
+
         if (isPrivate) {
           const privateToggle = document.querySelector('[data-testid="makePrivate"]');
           if (privateToggle) await clickElement(privateToggle);
         }
-        
+
         await sleep(300);
         const nextBtn = document.querySelector('[data-testid="listCreationNextButton"]');
         if (nextBtn) {
@@ -1368,28 +1452,28 @@ window.XActions = (() => {
           return true;
         }
       }
-      
+
       return false;
     },
-    
+
     // Delete a list
     delete: async (listId) => {
       log('Deleting list...', 'action');
-      
+
       window.location.href = `https://x.com/i/lists/${listId}`;
       await sleep(2000);
-      
+
       const moreBtn = await waitForElement('[data-testid="listsMoreButton"]');
       if (moreBtn) {
         await clickElement(moreBtn);
         await sleep(500);
-        
+
         const menuItems = document.querySelectorAll(SEL.menuItem);
         for (const item of menuItems) {
           if (item.textContent.toLowerCase().includes('delete')) {
             await clickElement(item);
             await sleep(500);
-            
+
             const confirmBtn = await waitForElement(SEL.confirmButton);
             if (confirmBtn) {
               await clickElement(confirmBtn);
@@ -1399,22 +1483,22 @@ window.XActions = (() => {
           }
         }
       }
-      
+
       return false;
     },
-    
+
     // Edit list
     edit: async (listId, newName, newDescription) => {
       log('Editing list...', 'action');
-      
+
       window.location.href = `https://x.com/i/lists/${listId}`;
       await sleep(2000);
-      
+
       const editBtn = await waitForElement('[data-testid="editList"]');
       if (editBtn) {
         await clickElement(editBtn);
         await sleep(800);
-        
+
         if (newName) {
           const nameInput = await waitForElement('input[name="name"]');
           if (nameInput) {
@@ -1422,7 +1506,7 @@ window.XActions = (() => {
             nameInput.dispatchEvent(new Event('input', { bubbles: true }));
           }
         }
-        
+
         if (newDescription !== undefined) {
           const descInput = await waitForElement('textarea[name="description"]');
           if (descInput) {
@@ -1430,7 +1514,7 @@ window.XActions = (() => {
             descInput.dispatchEvent(new Event('input', { bubbles: true }));
           }
         }
-        
+
         const saveBtn = document.querySelector('[data-testid="listEditSaveButton"]');
         if (saveBtn) {
           await clickElement(saveBtn);
@@ -1438,50 +1522,50 @@ window.XActions = (() => {
           return true;
         }
       }
-      
+
       return false;
     },
-    
+
     // Follow a list
     follow: async (listId) => {
       window.location.href = `https://x.com/i/lists/${listId}`;
       await sleep(2000);
-      
+
       const followBtn = await waitForElement('[data-testid="listFollow"]');
       if (followBtn) {
         await clickElement(followBtn);
         log('List followed!', 'success');
         return true;
       }
-      
+
       return false;
     },
-    
+
     // Unfollow a list
     unfollow: async (listId) => {
       window.location.href = `https://x.com/i/lists/${listId}`;
       await sleep(2000);
-      
+
       const unfollowBtn = await waitForElement('[data-testid="listUnfollow"]');
       if (unfollowBtn) {
         await clickElement(unfollowBtn);
         log('List unfollowed!', 'success');
         return true;
       }
-      
+
       return false;
     },
-    
+
     // Pin/unpin list
     pin: async (listId) => {
       window.location.href = `https://x.com/i/lists/${listId}`;
       await sleep(2000);
-      
+
       const moreBtn = await waitForElement('[data-testid="listsMoreButton"]');
       if (moreBtn) {
         await clickElement(moreBtn);
         await sleep(500);
-        
+
         const menuItems = document.querySelectorAll(SEL.menuItem);
         for (const item of menuItems) {
           if (item.textContent.toLowerCase().includes('pin')) {
@@ -1491,29 +1575,29 @@ window.XActions = (() => {
           }
         }
       }
-      
+
       return false;
     },
-    
+
     // Get all lists
     getAll: async () => {
       window.location.href = 'https://x.com/i/lists';
       await sleep(2000);
-      
+
       const listItems = document.querySelectorAll('[data-testid="listItem"]');
       return Array.from(listItems).map(item => ({
         element: item,
         text: item.textContent,
       }));
     },
-    
+
     // View list members
     viewMembers: async (listId) => {
       window.location.href = `https://x.com/i/lists/${listId}/members`;
       await sleep(2000);
       return true;
     },
-    
+
     // View list followers
     viewFollowers: async (listId) => {
       window.location.href = `https://x.com/i/lists/${listId}/followers`;
@@ -1535,25 +1619,25 @@ window.XActions = (() => {
     monetization: async () => { window.location.href = 'https://x.com/settings/monetization'; await sleep(2000); },
     creatorSubs: async () => { window.location.href = 'https://x.com/settings/manage_subscriptions'; await sleep(2000); },
     premium: async () => { window.location.href = 'https://x.com/settings/premium'; await sleep(2000); },
-    
+
     // Muted/blocked lists
     mutedAccounts: async () => { window.location.href = 'https://x.com/settings/muted/all'; await sleep(2000); },
     mutedWords: async () => { window.location.href = 'https://x.com/settings/muted_keywords'; await sleep(2000); },
     blockedAccounts: async () => { window.location.href = 'https://x.com/settings/blocked/all'; await sleep(2000); },
-    
+
     // Add muted word
     addMutedWord: async (word, options = {}) => {
       log(`Muting word: "${word}"...`, 'action');
-      
+
       window.location.href = 'https://x.com/settings/add_muted_keyword';
       await sleep(2000);
-      
+
       const input = await waitForElement('input[name="keyword"]');
       if (input) {
         input.value = word;
         input.dispatchEvent(new Event('input', { bubbles: true }));
         await sleep(300);
-        
+
         const saveBtn = document.querySelector('[data-testid="addButton"]');
         if (saveBtn) {
           await clickElement(saveBtn);
@@ -1561,10 +1645,10 @@ window.XActions = (() => {
           return true;
         }
       }
-      
+
       return false;
     },
-    
+
     // Download your data
     downloadData: async () => {
       window.location.href = 'https://x.com/settings/download_your_data';
@@ -1572,7 +1656,7 @@ window.XActions = (() => {
       log('Download data page opened', 'success');
       return true;
     },
-    
+
     // Deactivate account page
     deactivate: async () => {
       window.location.href = 'https://x.com/settings/deactivate';
@@ -1591,23 +1675,23 @@ window.XActions = (() => {
         log('Edit profile opened', 'success');
         return true;
       }
-      
+
       // Navigate to profile first
       window.location.href = 'https://x.com/settings/profile';
       await sleep(2000);
       return true;
     },
-    
+
     // Update display name
     updateName: async (newName) => {
       window.location.href = 'https://x.com/settings/profile';
       await sleep(2000);
-      
+
       const nameInput = await waitForElement('input[name="displayName"]');
       if (nameInput) {
         nameInput.value = newName;
         nameInput.dispatchEvent(new Event('input', { bubbles: true }));
-        
+
         const saveBtn = document.querySelector('[data-testid="ProfileSaveButton"]');
         if (saveBtn) {
           await clickElement(saveBtn);
@@ -1615,20 +1699,20 @@ window.XActions = (() => {
           return true;
         }
       }
-      
+
       return false;
     },
-    
+
     // Update bio
     updateBio: async (newBio) => {
       window.location.href = 'https://x.com/settings/profile';
       await sleep(2000);
-      
+
       const bioInput = await waitForElement('textarea[name="description"]');
       if (bioInput) {
         bioInput.value = newBio;
         bioInput.dispatchEvent(new Event('input', { bubbles: true }));
-        
+
         const saveBtn = document.querySelector('[data-testid="ProfileSaveButton"]');
         if (saveBtn) {
           await clickElement(saveBtn);
@@ -1636,20 +1720,20 @@ window.XActions = (() => {
           return true;
         }
       }
-      
+
       return false;
     },
-    
+
     // Update location
     updateLocation: async (location) => {
       window.location.href = 'https://x.com/settings/profile';
       await sleep(2000);
-      
+
       const locInput = await waitForElement('input[name="location"]');
       if (locInput) {
         locInput.value = location;
         locInput.dispatchEvent(new Event('input', { bubbles: true }));
-        
+
         const saveBtn = document.querySelector('[data-testid="ProfileSaveButton"]');
         if (saveBtn) {
           await clickElement(saveBtn);
@@ -1657,20 +1741,20 @@ window.XActions = (() => {
           return true;
         }
       }
-      
+
       return false;
     },
-    
+
     // Update website
     updateWebsite: async (url) => {
       window.location.href = 'https://x.com/settings/profile';
       await sleep(2000);
-      
+
       const urlInput = await waitForElement('input[name="url"]');
       if (urlInput) {
         urlInput.value = url;
         urlInput.dispatchEvent(new Event('input', { bubbles: true }));
-        
+
         const saveBtn = document.querySelector('[data-testid="ProfileSaveButton"]');
         if (saveBtn) {
           await clickElement(saveBtn);
@@ -1678,40 +1762,40 @@ window.XActions = (() => {
           return true;
         }
       }
-      
+
       return false;
     },
-    
+
     // Open avatar picker
     updateAvatar: async () => {
       window.location.href = 'https://x.com/settings/profile';
       await sleep(2000);
-      
+
       const avatarBtn = document.querySelector('[data-testid="ProfileAvatarInput"]');
       if (avatarBtn) {
         await clickElement(avatarBtn);
         log('Avatar picker opened - select file manually', 'warning');
         return true;
       }
-      
+
       return false;
     },
-    
+
     // Open header picker
     updateHeader: async () => {
       window.location.href = 'https://x.com/settings/profile';
       await sleep(2000);
-      
+
       const headerBtn = document.querySelector('[data-testid="ProfileHeaderInput"]');
       if (headerBtn) {
         await clickElement(headerBtn);
         log('Header picker opened - select file manually', 'warning');
         return true;
       }
-      
+
       return false;
     },
-    
+
     // Switch to professional account
     switchToProfessional: async () => {
       window.location.href = 'https://x.com/i/flow/convert_to_professional';
@@ -1735,12 +1819,12 @@ window.XActions = (() => {
       }
       return null;
     },
-    
+
     // Check if logged in
     isLoggedIn: () => {
       return document.querySelector('[data-testid="SideNav_AccountSwitcher_Button"]') !== null;
     },
-    
+
     // Get authentication tokens (for API use - be careful!)
     getTokens: () => {
       const cookies = document.cookie.split(';').reduce((acc, cookie) => {
@@ -1748,32 +1832,32 @@ window.XActions = (() => {
         acc[key] = value;
         return acc;
       }, {});
-      
+
       return {
         ct0: cookies.ct0, // CSRF token
         authToken: cookies.auth_token,
       };
     },
-    
+
     // Extract tweet ID from URL
     getTweetIdFromUrl: (url) => {
       const match = url?.match(/status\/(\d+)/);
       return match ? match[1] : null;
     },
-    
+
     // Extract username from URL
     getUsernameFromUrl: (url) => {
       const match = url?.match(/x\.com\/(\w+)/);
       return match ? match[1] : null;
     },
-    
+
     // Wait for page load
     waitForPageLoad: async () => {
       await waitForElement(SEL.primaryColumn);
       await sleep(500);
       return true;
     },
-    
+
     // Scroll and load more content
     loadMore: async (times = 3) => {
       for (let i = 0; i < times; i++) {
@@ -1782,7 +1866,7 @@ window.XActions = (() => {
       }
       return true;
     },
-    
+
     // Clear all X data from localStorage
     clearXData: () => {
       Object.keys(localStorage)
@@ -1790,71 +1874,71 @@ window.XActions = (() => {
         .forEach(k => localStorage.removeItem(k));
       log('X data cleared from localStorage', 'success');
     },
-    
+
     // Export bookmarks (scroll through and collect)
     exportBookmarks: async (maxItems = 100) => {
       log('Exporting bookmarks...', 'action');
-      
+
       window.location.href = 'https://x.com/i/bookmarks';
       await sleep(2000);
-      
+
       const bookmarks = [];
       let lastHeight = 0;
-      
+
       while (bookmarks.length < maxItems) {
         const tweets = document.querySelectorAll(SEL.tweet);
-        
+
         tweets.forEach(tweet => {
           const link = tweet.querySelector(SEL.tweetLink)?.href;
           const text = tweet.querySelector(SEL.tweetText)?.textContent;
-          
+
           if (link && !bookmarks.find(b => b.link === link)) {
             bookmarks.push({ link, text: text?.substring(0, 100) });
           }
         });
-        
+
         window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
         await sleep(2000);
-        
+
         if (document.body.scrollHeight === lastHeight) break;
         lastHeight = document.body.scrollHeight;
       }
-      
+
       log(`Exported ${bookmarks.length} bookmarks!`, 'success');
       return bookmarks;
     },
-    
+
     // Export likes
     exportLikes: async (username, maxItems = 100) => {
       log(`Exporting likes from @${username}...`, 'action');
-      
+
       window.location.href = `https://x.com/${username}/likes`;
       await sleep(2000);
-      
+
       const likes = [];
       let lastHeight = 0;
-      
+
       while (likes.length < maxItems) {
         const tweets = document.querySelectorAll(SEL.tweet);
-        
+
         tweets.forEach(tweet => {
           const link = tweet.querySelector(SEL.tweetLink)?.href;
           if (link && !likes.includes(link)) {
             likes.push(link);
           }
         });
-        
+
         window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
         await sleep(2000);
-        
+
         if (document.body.scrollHeight === lastHeight) break;
         lastHeight = document.body.scrollHeight;
       }
-      
+
       log(`Exported ${likes.length} likes!`, 'success');
       return likes;
     },
-    
+
     // Copy to clipboard
     copyToClipboard: async (text) => {
       try {
@@ -1866,7 +1950,7 @@ window.XActions = (() => {
         return false;
       }
     },
-    
+
     // Screenshot tweet (opens in new tab for saving)
     screenshotTweet: async (tweetUrl) => {
       // Use a screenshot service
@@ -1878,7 +1962,7 @@ window.XActions = (() => {
       }
       return false;
     },
-    
+
     // Enable keyboard shortcuts display
     showKeyboardShortcuts: async () => {
       // Press ? to show shortcuts
@@ -1886,7 +1970,7 @@ window.XActions = (() => {
       log('Keyboard shortcuts triggered', 'success');
       return true;
     },
-    
+
     // Developer mode - show hidden elements
     devMode: () => {
       // Show all data-testid attributes
@@ -1896,7 +1980,7 @@ window.XActions = (() => {
       });
       log('Dev mode enabled - elements outlined', 'success');
     },
-    
+
     // Get all data-testid selectors on page
     getAllSelectors: () => {
       const selectors = new Set();
@@ -1917,22 +2001,22 @@ window.XActions = (() => {
       await sleep(2000);
       return true;
     },
-    
+
     // Join a space
     join: async (spaceId) => {
       window.location.href = `https://x.com/i/spaces/${spaceId}`;
       await sleep(2000);
-      
+
       const joinBtn = await waitForElement('[data-testid="SpaceJoinButton"]');
       if (joinBtn) {
         await clickElement(joinBtn);
         log('Joined space!', 'success');
         return true;
       }
-      
+
       return false;
     },
-    
+
     // Leave current space
     leave: async () => {
       const leaveBtn = await waitForElement('[data-testid="SpaceLeaveButton"]');
@@ -1941,10 +2025,10 @@ window.XActions = (() => {
         log('Left space!', 'success');
         return true;
       }
-      
+
       return false;
     },
-    
+
     // Request to speak
     requestToSpeak: async () => {
       const requestBtn = await waitForElement('[data-testid="SpaceRequestSpeaker"]');
@@ -1953,32 +2037,32 @@ window.XActions = (() => {
         log('Requested to speak!', 'success');
         return true;
       }
-      
+
       return false;
     },
-    
+
     // Set reminder for scheduled space
     setReminder: async (spaceId) => {
       window.location.href = `https://x.com/i/spaces/${spaceId}`;
       await sleep(2000);
-      
+
       const reminderBtn = await waitForElement('[data-testid="SpaceReminder"]');
       if (reminderBtn) {
         await clickElement(reminderBtn);
         log('Reminder set!', 'success');
         return true;
       }
-      
+
       return false;
     },
-    
+
     // Share space
     share: async () => {
       const shareBtn = await waitForElement('[data-testid="SpaceShareButton"]');
       if (shareBtn) {
         await clickElement(shareBtn);
         await sleep(500);
-        
+
         const copyBtn = await waitForElement('[data-testid="SpaceCopyLink"]');
         if (copyBtn) {
           await clickElement(copyBtn);
@@ -1986,7 +2070,7 @@ window.XActions = (() => {
           return true;
         }
       }
-      
+
       return false;
     },
   };
@@ -1998,37 +2082,37 @@ window.XActions = (() => {
       await sleep(2000);
       return true;
     },
-    
+
     // View a community
     view: async (communityId) => {
       window.location.href = `https://x.com/i/communities/${communityId}`;
       await sleep(2000);
       return true;
     },
-    
+
     // Join a community
     join: async (communityId) => {
       await communities.view(communityId);
-      
+
       const joinBtn = await waitForElement('[data-testid="CommunityJoin"]');
       if (joinBtn) {
         await clickElement(joinBtn);
         log('Joined community!', 'success');
         return true;
       }
-      
+
       return false;
     },
-    
+
     // Leave a community
     leave: async (communityId) => {
       await communities.view(communityId);
-      
+
       const moreBtn = await waitForElement('[data-testid="CommunityActions"]');
       if (moreBtn) {
         await clickElement(moreBtn);
         await sleep(500);
-        
+
         const menuItems = document.querySelectorAll(SEL.menuItem);
         for (const item of menuItems) {
           if (item.textContent.toLowerCase().includes('leave')) {
@@ -2038,26 +2122,26 @@ window.XActions = (() => {
           }
         }
       }
-      
+
       return false;
     },
-    
+
     // Post in community
     post: async (communityId, text) => {
       window.location.href = `https://x.com/i/communities/${communityId}`;
       await sleep(2000);
-      
+
       // Click tweet button which will post to community
       const composeBtn = document.querySelector('[data-testid="SideNav_NewTweet_Button"]');
       if (composeBtn) {
         await clickElement(composeBtn);
         await sleep(800);
-        
+
         const textarea = await waitForElement(SEL.tweetTextarea);
         if (textarea) {
           await typeText(textarea, text);
           await sleep(500);
-          
+
           const postBtn = document.querySelector(SEL.tweetButton);
           if (postBtn && !postBtn.disabled) {
             await clickElement(postBtn);
@@ -2066,14 +2150,14 @@ window.XActions = (() => {
           }
         }
       }
-      
+
       return false;
     },
   };
 
   // Expose ALL sections
   log('XActions FULL library loaded!', 'success');
-  
+
   return {
     SEL,
     tweet,
@@ -2089,7 +2173,7 @@ window.XActions = (() => {
     spaces,
     communities,
   };
-})();
+})());
 
 console.log(`
 ╔══════════════════════════════════════════════════════════════════════╗

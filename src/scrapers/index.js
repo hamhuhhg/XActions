@@ -44,10 +44,16 @@ export async function createBrowser(options = {}) {
  */
 export async function createPage(browser) {
   const page = await browser.newPage();
+
+  // CRITICAL: Disable Content Security Policy so we can deeply inject automation scripts
+  await page.setBypassCSP(true);
+
   await page.setViewport({ width: 1280 + Math.floor(Math.random() * 100), height: 800 });
   await page.setUserAgent(
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
   );
+  // Disable default navigation timeout to prevent 60s crashes during long automation tasks
+  await page.setDefaultNavigationTimeout(0);
   return page;
 }
 
@@ -63,7 +69,7 @@ export async function loginWithCookie(page, authToken) {
     httpOnly: true,
     secure: true,
   });
-  await page.goto('https://x.com/home', { waitUntil: 'networkidle2' });
+  await page.goto('https://x.com/home', { waitUntil: 'domcontentloaded', timeout: 0 });
   return page;
 }
 
@@ -78,8 +84,40 @@ export async function loginWithCookie(page, authToken) {
  * @returns {Object} Profile data
  */
 export async function scrapeProfile(page, username) {
-  await page.goto(`https://x.com/${username}`, { waitUntil: 'networkidle2' });
+  try {
+    // Avoid networkidle2 on X.com as it polls constantly and causes timeouts
+    await page.goto(`https://x.com/${username}`, { waitUntil: 'domcontentloaded', timeout: 30000 });
+  } catch (err) {
+    console.log(`Navigation to profile failed, proceeding to check DOM anyway: ${err.message}`);
+  }
+
   await randomDelay();
+
+  try {
+    // Look for either the profile column or the "Account suspended" / "Doesn't exist" text
+    await page.waitForSelector('[data-testid="primaryColumn"], [data-testid="emptyState"]', { timeout: 15000 });
+
+    // Explicitly wait for the username section to appear so we know text has rendered, not just the column shell
+    await page.waitForSelector('[data-testid="UserName"]', { timeout: 10000 }).catch(() => { });
+
+    await sleep(4000); // Give extra time for following/followers stats to load in
+
+    // Check if it's an empty state (e.g. suspended or doesn't exist)
+    const isEmpty = await page.evaluate(() => !!document.querySelector('[data-testid="emptyState"]'));
+    if (isEmpty) {
+      console.log(`Profile @${username} appears to be suspended, doesn't exist, or is blocked by a login wall.`);
+    }
+
+  } catch (e) {
+    console.log(`Timeout waiting for user profile: ${username}. It might be rate-limited, suspended, or require an auth token.`);
+    console.log(`Page URL was: ${page.url()}`);
+    try {
+      await page.screenshot({ path: `error_profile_${username}.png`, fullPage: true });
+      console.log(`Saved screenshot to error_profile_${username}.png`);
+    } catch (err) {
+      // ignore
+    }
+  }
 
   const profile = await page.evaluate(() => {
     const getText = (sel) => document.querySelector(sel)?.textContent?.trim() || null;
@@ -92,10 +130,10 @@ export async function scrapeProfile(page, username) {
     // Get avatar
     const avatar = document.querySelector('[data-testid="UserAvatar-Container-unknown"] img, [data-testid*="UserAvatar"] img')?.src;
 
-    // Parse name and username
+    // Parse name and username. Using [\w_.]+ to catch various username formats.
     const nameSection = document.querySelector('[data-testid="UserName"]');
     const fullText = nameSection?.textContent || '';
-    const usernameMatch = fullText.match(/@(\w+)/);
+    const usernameMatch = fullText.match(/@([\w_.]+)/);
 
     // Get stats
     const followingLink = document.querySelector('a[href$="/following"]');
@@ -134,7 +172,7 @@ export async function scrapeProfile(page, username) {
  */
 export async function scrapeFollowers(page, username, options = {}) {
   const { limit = 1000, onProgress } = options;
-  
+
   await page.goto(`https://x.com/${username}/followers`, { waitUntil: 'networkidle2' });
   await randomDelay();
 
@@ -195,7 +233,7 @@ export async function scrapeFollowers(page, username, options = {}) {
  */
 export async function scrapeFollowing(page, username, options = {}) {
   const { limit = 1000, onProgress } = options;
-  
+
   await page.goto(`https://x.com/${username}/following`, { waitUntil: 'networkidle2' });
   await randomDelay();
 
@@ -253,11 +291,11 @@ export async function scrapeFollowing(page, username, options = {}) {
  */
 export async function scrapeTweets(page, username, options = {}) {
   const { limit = 100, includeReplies = false, onProgress } = options;
-  
-  const url = includeReplies 
+
+  const url = includeReplies
     ? `https://x.com/${username}/with_replies`
     : `https://x.com/${username}`;
-    
+
   await page.goto(url, { waitUntil: 'networkidle2' });
   await randomDelay();
 
@@ -276,14 +314,14 @@ export async function scrapeTweets(page, username, options = {}) {
         const repliesEl = article.querySelector('[data-testid="reply"] span span');
         const viewsEl = article.querySelector('a[href*="/analytics"] span span');
         const linkEl = article.querySelector('a[href*="/status/"]');
-        
+
         // Get media
         const images = Array.from(article.querySelectorAll('[data-testid="tweetPhoto"] img')).map(i => i.src);
         const video = article.querySelector('[data-testid="videoPlayer"]') ? true : false;
-        
+
         // Get quoted tweet
         const quotedEl = article.querySelector('[data-testid="quoteTweet"]');
-        
+
         return {
           id: linkEl?.href?.match(/status\/(\d+)/)?.[1] || null,
           text: textEl?.textContent || null,
@@ -332,7 +370,7 @@ export async function scrapeTweets(page, username, options = {}) {
  */
 export async function searchTweets(page, query, options = {}) {
   const { limit = 100, filter = 'latest', onProgress } = options;
-  
+
   const filterMap = {
     latest: 'live',
     top: 'top',
@@ -340,10 +378,10 @@ export async function searchTweets(page, query, options = {}) {
     photos: 'image',
     videos: 'video',
   };
-  
+
   const encodedQuery = encodeURIComponent(query);
   const f = filterMap[filter] || 'live';
-  
+
   await page.goto(`https://x.com/search?q=${encodedQuery}&src=typed_query&f=${f}`, {
     waitUntil: 'networkidle2',
   });
@@ -362,7 +400,7 @@ export async function searchTweets(page, query, options = {}) {
         const timeEl = article.querySelector('time');
         const linkEl = article.querySelector('a[href*="/status/"]');
         const likesEl = article.querySelector('[data-testid="like"] span span');
-        
+
         return {
           id: linkEl?.href?.match(/status\/(\d+)/)?.[1] || null,
           text: textEl?.textContent || null,
@@ -414,9 +452,9 @@ export async function scrapeThread(page, tweetUrl) {
   const thread = await page.evaluate(() => {
     const articles = document.querySelectorAll('article[data-testid="tweet"]');
     const mainTweetId = window.location.pathname.match(/status\/(\d+)/)?.[1];
-    
+
     // Get main author
-    const mainArticle = Array.from(articles).find(a => 
+    const mainArticle = Array.from(articles).find(a =>
       a.querySelector(`a[href*="/status/${mainTweetId}"]`)
     );
     const mainAuthor = mainArticle?.querySelector('[data-testid="User-Name"] a')?.href?.split('/')[3];
@@ -427,9 +465,9 @@ export async function scrapeThread(page, tweetUrl) {
         const authorLink = article.querySelector('[data-testid="User-Name"] a[href^="/"]');
         const timeEl = article.querySelector('time');
         const linkEl = article.querySelector('a[href*="/status/"]');
-        
+
         const author = authorLink?.href?.split('/')[3];
-        
+
         return {
           id: linkEl?.href?.match(/status\/(\d+)/)?.[1] || null,
           text: textEl?.textContent || null,
@@ -454,7 +492,7 @@ export async function scrapeThread(page, tweetUrl) {
  */
 export async function scrapeLikes(page, tweetUrl, options = {}) {
   const { limit = 100 } = options;
-  
+
   // Navigate to likes page
   const likesUrl = tweetUrl.replace(/\/status\//, '/status/') + '/likes';
   await page.goto(likesUrl, { waitUntil: 'networkidle2' });
@@ -508,7 +546,7 @@ export async function scrapeLikes(page, tweetUrl, options = {}) {
  */
 export async function scrapeHashtag(page, hashtag, options = {}) {
   const { limit = 100, filter = 'latest' } = options;
-  
+
   const tag = hashtag.startsWith('#') ? hashtag.slice(1) : hashtag;
   return searchTweets(page, `#${tag}`, { limit, filter });
 }
@@ -522,7 +560,7 @@ export async function scrapeHashtag(page, hashtag, options = {}) {
  */
 export async function scrapeMedia(page, username, options = {}) {
   const { limit = 100 } = options;
-  
+
   await page.goto(`https://x.com/${username}/media`, { waitUntil: 'networkidle2' });
   await randomDelay();
 
@@ -539,13 +577,13 @@ export async function scrapeMedia(page, username, options = {}) {
             type: 'image',
             url: img.src.replace(/&name=\w+/, '&name=large'),
           }));
-        
+
         const videos = article.querySelector('[data-testid="videoPlayer"]')
           ? [{ type: 'video', url: article.querySelector('a[href*="/status/"]')?.href }]
           : [];
-        
+
         const tweetUrl = article.querySelector('a[href*="/status/"]')?.href;
-        
+
         return [...images, ...videos].map(m => ({
           ...m,
           tweetUrl,
@@ -582,7 +620,7 @@ export async function scrapeMedia(page, username, options = {}) {
  */
 export async function scrapeListMembers(page, listUrl, options = {}) {
   const { limit = 500 } = options;
-  
+
   const membersUrl = listUrl.endsWith('/members') ? listUrl : `${listUrl}/members`;
   await page.goto(membersUrl, { waitUntil: 'networkidle2' });
   await randomDelay();
@@ -643,11 +681,11 @@ export async function exportToJSON(data, filename) {
  */
 export async function exportToCSV(data, filename) {
   if (!data.length) return filename;
-  
+
   const headers = Object.keys(data[0]);
   const csvRows = [
     headers.join(','),
-    ...data.map(row => 
+    ...data.map(row =>
       headers.map(h => {
         const val = row[h];
         if (typeof val === 'string') {
@@ -657,7 +695,7 @@ export async function exportToCSV(data, filename) {
       }).join(',')
     ),
   ];
-  
+
   await fs.writeFile(filename, csvRows.join('\n'));
   return filename;
 }
@@ -671,7 +709,7 @@ export default {
   createBrowser,
   createPage,
   loginWithCookie,
-  
+
   // Scrapers
   scrapeProfile,
   scrapeFollowers,
@@ -683,7 +721,7 @@ export default {
   scrapeHashtag,
   scrapeMedia,
   scrapeListMembers,
-  
+
   // Export
   exportToJSON,
   exportToCSV,

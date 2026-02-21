@@ -37,6 +37,8 @@ import adminRoutes from './routes/admin.js';
 import webhookRoutes from './routes/webhooks.js';
 // AI API routes - modular structure optimized for AI agent consumption
 import aiRoutes from './routes/ai/index.js';
+// New unified API for dashboard (Scrapers + Automation Scripts)
+import newApiRoutes from './routes/new_api.js';
 import { initializeSocketIO } from './realtime/socketHandler.js';
 import { initializeLicensing, brandingMiddleware } from './services/licensing.js';
 
@@ -69,18 +71,19 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'", "https://cdn.socket.io"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://cdn.socket.io", "https://cdn.tailwindcss.com"],
+      scriptSrcAttr: ["'unsafe-inline'"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://cdnjs.cloudflare.com", "https://fonts.googleapis.com"],
       imgSrc: ["'self'", "data:", "https:"],
       connectSrc: ["'self'", "wss:", "https:"],
-      fontSrc: ["'self'", "https:", "data:"],
+      fontSrc: ["'self'", "https:", "data:", "https://fonts.gstatic.com", "https://cdnjs.cloudflare.com"],
       objectSrc: ["'none'"],
       frameSrc: ["'self'"]
     }
   }
 }));
 app.use(cors({
-  origin: process.env.NODE_ENV === 'production' 
+  origin: process.env.NODE_ENV === 'production'
     ? ['https://xactions.app', process.env.FRONTEND_URL].filter(Boolean)
     : true, // Allow all origins in development
   credentials: true
@@ -138,6 +141,10 @@ app.use(express.static(path.join(__dirname, '../dashboard')));
 // Branding middleware - injects "Powered by XActions" if no license
 app.use(brandingMiddleware());
 
+app.get('/cli-tools.html', (req, res) => {
+  res.sendFile(path.join(__dirname, '../dashboard/cli-tools.html'));
+});
+
 // Routes
 // Payment routes archived - XActions is now 100% free and open-source
 app.use('/webhooks', webhookRoutes); // Receive payment notifications
@@ -148,6 +155,8 @@ app.use('/api/twitter', twitterRoutes);
 app.use('/api/session', sessionAuthRoutes);
 app.use('/api/license', licenseRoutes);
 app.use('/api/admin', adminRoutes);
+// Dashboard UI APIs (Data Scrapers + Automation)
+app.use('/api/new_api', newApiRoutes);
 
 // Dashboard routes
 app.get('/', (req, res) => {
@@ -243,7 +252,7 @@ httpServer.listen(PORT, async () => {
   console.log(`🚀 XActions API Server running on port ${PORT}`);
   console.log(`🔌 WebSocket server ready for real-time connections`);
   console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
-  
+
   // Validate x402 configuration
   // In production, this will throw if payment address is not configured
   try {
@@ -257,7 +266,7 @@ httpServer.listen(PORT, async () => {
       }
     }
     x402Validation.warnings?.forEach(w => console.warn(`⚠️  x402: ${w}`));
-    
+
     if (x402Validation.valid) {
       console.log(`💰 x402 AI monetization: Humans free, AI agents pay per call`);
     } else {
@@ -270,7 +279,7 @@ httpServer.listen(PORT, async () => {
       process.exit(1);
     }
   }
-  
+
   // Initialize licensing and telemetry
   await initializeLicensing();
 });

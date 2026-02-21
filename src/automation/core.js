@@ -16,15 +16,15 @@ window.XActions.Core = (() => {
     DELAY_MEDIUM: 1500,
     DELAY_LONG: 3000,
     DELAY_BETWEEN_ACTIONS: 2000,
-    
+
     // Limits (to avoid rate limiting)
     MAX_ACTIONS_PER_HOUR: 50,
     MAX_FOLLOWS_PER_DAY: 100,
     MAX_LIKES_PER_DAY: 200,
-    
+
     // Storage keys prefix
     STORAGE_PREFIX: 'xactions_',
-    
+
     // Debug mode
     DEBUG: true,
   };
@@ -41,22 +41,22 @@ window.XActions.Core = (() => {
     retweetButton: '[data-testid="retweet"]',
     replyButton: '[data-testid="reply"]',
     confirmButton: '[data-testid="confirmationSheetConfirm"]',
-    
+
     // Tweet elements
     tweet: '[data-testid="tweet"]',
     tweetText: '[data-testid="tweetText"]',
     tweetLink: 'a[href*="/status/"]',
-    
+
     // User elements
     userCell: '[data-testid="UserCell"]',
     userAvatar: '[data-testid="UserAvatar-Container"]',
     userName: '[data-testid="User-Name"]',
     userFollowIndicator: '[data-testid="userFollowIndicator"]',
-    
+
     // Input elements
     tweetInput: '[data-testid="tweetTextarea_0"]',
     searchInput: '[data-testid="SearchBox_Search_Input"]',
-    
+
     // Navigation
     primaryColumn: '[data-testid="primaryColumn"]',
     timeline: 'section[role="region"]',
@@ -65,9 +65,9 @@ window.XActions.Core = (() => {
   // ============================================
   // UTILITY FUNCTIONS
   // ============================================
-  
+
   const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-  
+
   const randomDelay = (min, max) => {
     const delay = Math.floor(Math.random() * (max - min + 1)) + min;
     return sleep(delay);
@@ -82,7 +82,7 @@ window.XActions.Core = (() => {
       error: '❌',
       action: '🔧',
     }[type] || '📘';
-    
+
     if (CONFIG.DEBUG || type === 'error') {
       console.log(`${prefix} [${timestamp}] ${message}`);
     }
@@ -103,7 +103,7 @@ window.XActions.Core = (() => {
   // ============================================
   // STORAGE FUNCTIONS
   // ============================================
-  
+
   const storage = {
     get: (key) => {
       try {
@@ -114,7 +114,7 @@ window.XActions.Core = (() => {
         return null;
       }
     },
-    
+
     set: (key, value) => {
       try {
         localStorage.setItem(CONFIG.STORAGE_PREFIX + key, JSON.stringify(value));
@@ -124,17 +124,17 @@ window.XActions.Core = (() => {
         return false;
       }
     },
-    
+
     remove: (key) => {
       localStorage.removeItem(CONFIG.STORAGE_PREFIX + key);
     },
-    
+
     list: () => {
       return Object.keys(localStorage)
         .filter(k => k.startsWith(CONFIG.STORAGE_PREFIX))
         .map(k => k.replace(CONFIG.STORAGE_PREFIX, ''));
     },
-    
+
     clear: () => {
       storage.list().forEach(key => storage.remove(key));
     },
@@ -143,7 +143,7 @@ window.XActions.Core = (() => {
   // ============================================
   // DOM HELPER FUNCTIONS
   // ============================================
-  
+
   const waitForElement = async (selector, timeout = 10000) => {
     const startTime = Date.now();
     while (Date.now() - startTime < timeout) {
@@ -177,21 +177,33 @@ window.XActions.Core = (() => {
     }
   };
 
-  const typeText = async (element, text, delay = 50) => {
+  const typeText = async (element, text, delay = 10) => {
     if (!element) return false;
     try {
       element.focus();
-      for (const char of text) {
-        const event = new InputEvent('input', {
-          bubbles: true,
-          cancelable: true,
-          inputType: 'insertText',
-          data: char,
-        });
-        element.textContent += char;
-        element.dispatchEvent(event);
-        await sleep(delay);
-      }
+
+      // X.com uses Draft.js/React which ignores normal InputEvents. 
+      // The most reliable way to trigger their internal onChange is via document.execCommand
+      const dataTransfer = new DataTransfer();
+      dataTransfer.setData('text/plain', text);
+
+      const event = new ClipboardEvent('paste', {
+        clipboardData: dataTransfer,
+        bubbles: true,
+        cancelable: true
+      });
+
+      element.dispatchEvent(event);
+      // Wait for React to process the paste event
+      await sleep(100);
+
+      // Fallback if paste didn't trigger React state update
+      document.execCommand('insertText', false, text);
+
+      // Dispatch input event to be doubly sure
+      element.dispatchEvent(new Event('input', { bubbles: true }));
+
+      await sleep(delay);
       return true;
     } catch (e) {
       log(`Type error: ${e.message}`, 'error');
@@ -202,7 +214,7 @@ window.XActions.Core = (() => {
   // ============================================
   // USER EXTRACTION
   // ============================================
-  
+
   const extractUsername = (element) => {
     // Try to find username from various sources
     const link = element.querySelector('a[href^="/"]');
@@ -222,7 +234,7 @@ window.XActions.Core = (() => {
         .filter(href => href && !href.includes('x.com'));
       const tweetLink = tweetElement.querySelector(SELECTORS.tweetLink)?.href || '';
       const userName = tweetElement.querySelector(SELECTORS.userName)?.textContent || '';
-      
+
       return { text, links, tweetLink, userName };
     } catch (e) {
       return null;
@@ -232,30 +244,30 @@ window.XActions.Core = (() => {
   // ============================================
   // RATE LIMITING
   // ============================================
-  
+
   const rateLimit = {
     _counts: {},
-    
+
     check: (action, limit, period = 'hour') => {
       const key = `ratelimit_${action}_${period}`;
       const data = storage.get(key) || { count: 0, timestamp: Date.now() };
-      
+
       const periodMs = period === 'hour' ? 3600000 : 86400000;
       if (Date.now() - data.timestamp > periodMs) {
         data.count = 0;
         data.timestamp = Date.now();
       }
-      
+
       return data.count < limit;
     },
-    
+
     increment: (action, period = 'hour') => {
       const key = `ratelimit_${action}_${period}`;
       const data = storage.get(key) || { count: 0, timestamp: Date.now() };
       data.count++;
       storage.set(key, data);
     },
-    
+
     getRemaining: (action, limit, period = 'hour') => {
       const key = `ratelimit_${action}_${period}`;
       const data = storage.get(key) || { count: 0, timestamp: Date.now() };
@@ -266,16 +278,16 @@ window.XActions.Core = (() => {
   // ============================================
   // ACTION QUEUE
   // ============================================
-  
+
   const actionQueue = {
     _queue: [],
     _running: false,
-    
+
     add: (action, ...args) => {
       actionQueue._queue.push({ action, args });
       if (!actionQueue._running) actionQueue._process();
     },
-    
+
     _process: async () => {
       actionQueue._running = true;
       while (actionQueue._queue.length > 0) {
@@ -289,18 +301,18 @@ window.XActions.Core = (() => {
       }
       actionQueue._running = false;
     },
-    
+
     clear: () => {
       actionQueue._queue = [];
     },
-    
+
     length: () => actionQueue._queue.length,
   };
 
   // ============================================
   // EXPOSE PUBLIC API
   // ============================================
-  
+
   return {
     CONFIG,
     SELECTORS,
