@@ -141,27 +141,13 @@
         <p id="current-tool-desc" class="text-sm text-slate-400 mt-1">اختر أداة من الشريط الجانبي للبدء.</p>
       </div>
       <div class="flex items-center gap-4">
-        <!-- Auth Token Quick Set -->
-        <div class="relative group">
-          <button
-            class="bg-darkcard border border-darkborder hover:border-brand-500/50 text-slate-300 px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2">
-            <i class="fa-solid fa-key text-brand-400"></i>
-            رمز المصادقة
-            <i class="fa-solid fa-chevron-down text-xs opacity-50"></i>
+        <!-- Accounts Manager Quick Set -->
+        <div class="relative">
+          <button onclick="openAccountsManager()"
+            class="bg-darkcard border border-darkborder hover:border-brand-500/50 text-slate-300 px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 shadow-lg hover:shadow-brand-500/20">
+            <i class="fa-solid fa-users text-brand-400"></i>
+            إدارة الحسابات
           </button>
-          <!-- Dropdown for Auth Token -->
-          <div
-            class="absolute left-0 mt-2 w-80 bg-darkcard border border-darkborder rounded-xl shadow-2xl p-4 hidden group-hover:block z-50">
-            <label class="block text-xs font-medium text-slate-400 mb-1">رمز auth_token الخاص بـ X.com (<a
-                href="/docs#auth" target="_blank" class="text-brand-400 hover:underline">ما هو هذا الرمز؟</a>)</label>
-            <input type="password" id="global-auth-token" placeholder="ألصق ملف تعريف الارتباط auth_token هنا..."
-              class="w-full bg-slate-900 border border-darkborder rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 transition-all font-mono"
-              dir="ltr">
-            <button onclick="saveAuthToken()"
-              class="mt-3 w-full bg-brand-600 hover:bg-brand-500 text-white font-medium py-2 rounded-lg text-sm transition-colors">
-              حفظ الرمز محلياً
-            </button>
-          </div>
         </div>
       </div>
     </header>
@@ -182,12 +168,16 @@
             لسطر الأوامر.</p>
           <div class="grid grid-cols-2 gap-4 w-full">
             <div class="bg-darkcard p-4 rounded-xl border border-darkborder flex items-start gap-4 text-right">
-              <div class="w-10 h-10 rounded-lg bg-blue-500/10 flex items-center justify-center shrink-0">
-                <i class="fa-solid fa-database text-blue-400"></i>
-              </div>
-              <div>
-                <h3 class="text-white font-medium">استخراج البيانات</h3>
-                <p class="text-xs text-slate-400 mt-1">احصل على المتابعين، التغريدات، والملفات الشخصية فوراً.</p>
+              <!-- Header details -->
+              <div class="flex items-center gap-3">
+                <div
+                  class="w-10 h-10 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center shrink-0 border border-indigo-500/30">
+                  <i class="fa-solid fa-users text-lg"></i>
+                </div>
+                <div>
+                  <h3 class="text-lg font-bold text-white">إدارة حسابات X.com</h3>
+                  <p class="text-xs text-slate-400">أضف حسابات تويتر لاستخدامها في الأتمتة</p>
+                </div>
               </div>
             </div>
             <div class="bg-darkcard p-4 rounded-xl border border-darkborder flex items-start gap-4 text-right">
@@ -277,6 +267,7 @@
     // Store current data
     let currentToolId = null;
     let lastResultData = null;
+    let xactionsAccounts = JSON.parse(localStorage.getItem('xactions_accounts')) || [];
     // Tool Configurations
     const tools = {
       // --- SCRAPERS ---
@@ -477,12 +468,23 @@
           { id: 'comment_text', label: 'رسالة الرد', type: 'text', placeholder: 'Great post!', required: true },
           { id: 'limit', label: 'أقصى عدد للردود', type: 'number', placeholder: '5', defaultValue: 5 }
         ]
+      },
+      'campaigns': {
+        id: 'campaigns',
+        type: 'action',
+        title: 'بوت الحملات (متقدم)',
+        desc: 'بناء حملات معقدة تتضمن تغريدات، ردود، اقتباسات، وجدولة زمنية عبر عدة حسابات دفعة واحدة.',
+        icon: 'fa-solid fa-bullhorn',
+        color: 'text-brand-400',
+        method: 'POST',
+        requiresAuth: true,
+        isSpecialized: true,
+        inputs: []
       }
     };
     // Initialize UI
     document.addEventListener('DOMContentLoaded', () => {
       renderSidebarNav();
-      checkAuthToken();
       // Handle Run Button
       document.getElementById('run-btn').addEventListener('click', executeTool);
     });
@@ -523,6 +525,59 @@
       // Build Form
       const form = document.getElementById('dynamic-form');
       form.innerHTML = ''; // Clear existing
+
+      if (tool.isSpecialized && tool.id === 'campaigns') {
+        renderCampaignBuilder(form);
+        document.getElementById('run-btn').classList.add('hidden');
+        return;
+      } else {
+        document.getElementById('run-btn').classList.remove('hidden');
+      }
+
+      // Inject Account Selection if needed
+      if (tool.requiresAuth) {
+        const accWrapper = document.createElement('div');
+        accWrapper.className = 'mb-4 border border-darkborder rounded-xl bg-slate-900/40 overflow-hidden';
+        const header = document.createElement('div');
+        header.className = 'bg-slate-900 px-4 py-2 border-b border-darkborder flex items-center justify-between';
+
+        // Build the options string for the country filter
+        let filterOptions = '<option value="all">جميع الدول</option><option value="global">🌍 غير محدد</option>';
+        allCountries.forEach(c => {
+          filterOptions += `<option value="${c.code}">${c.flag} ${c.name}</option>`;
+        });
+
+        header.innerHTML = `
+          <h4 class="text-sm font-semibold text-white flex items-center gap-2"><i class="fa-solid fa-users text-brand-400"></i> الحسابات المستهدفة</h4>
+          <div class="flex items-center gap-3">
+            <select id="tool-accounts-filter" onchange="filterToolAccounts(this.value)" class="bg-slate-800 border border-slate-700 text-xs text-slate-300 rounded px-2 py-1.5 focus:outline-none focus:border-brand-500 appearance-none pr-6 pl-2 bg-no-repeat bg-[url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%2394a3b8%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:8px_8px] bg-[position:right_6px_center]">
+              ${filterOptions}
+            </select>
+            <button type="button" onclick="selectAllAccounts()" class="text-xs font-semibold text-brand-400 hover:text-brand-300 hover:underline transition-colors flex items-center gap-1"><i class="fa-solid fa-check-double"></i> تحديد الكل</button>
+          </div>
+        `;
+        accWrapper.appendChild(header);
+        const listDiv = document.createElement('div');
+        listDiv.className = 'p-3 space-y-2 max-h-48 overflow-y-auto custom-scrollbar';
+        if (xactionsAccounts.length === 0) {
+          listDiv.innerHTML = '<p class="text-xs text-slate-500 text-center py-2">لا يوجد حسابات. يرجى إضافتها من إدارة الحسابات العلوية.</p>';
+        } else {
+          xactionsAccounts.forEach(acc => {
+            const lbl = document.createElement('label');
+            const flag = buildFlagEmoji(acc.country);
+            lbl.className = 'flex items-center gap-3 hover:bg-slate-800/50 p-2 rounded-lg cursor-pointer transition-colors tool-account-row';
+            lbl.dataset.country = acc.country || 'global';
+            lbl.innerHTML = `
+              <input type="checkbox" name="target_accounts" value="${acc.id}" class="w-4 h-4 text-brand-500 bg-slate-900 border-darkborder rounded focus:ring-brand-500 focus:ring-offset-darkcard account-checkbox">
+              <span class="text-sm font-medium text-slate-300 select-none">${flag} ${acc.name}</span>
+            `;
+            listDiv.appendChild(lbl);
+          });
+        }
+        accWrapper.appendChild(listDiv);
+        form.appendChild(accWrapper);
+      }
+
       tool.inputs.forEach(input => {
         const wrapper = document.createElement('div');
         const label = document.createElement('label');
@@ -619,6 +674,7 @@
         document.getElementById('run-btn-text').innerText = 'بدء الاستخراج';
       }
       // Clean Terminal
+      clearTerminal();
       printToTerminal('جاهز. تم التهيئة لـ ' + tool.title, 'info');
       document.getElementById('export-controls').style.display = 'none';
     }
@@ -663,48 +719,78 @@
         }
       }
       if (!isValid) return printToTerminal('خطأ: يرجى ملء جميع الحقول المطلوبة.', 'error');
-      const token = localStorage.getItem('xactions_auth_token');
-      if (tool.requiresAuth && !token) {
-        return printToTerminal('خطأ: تتطلب هذه الأداة رمز auth_token الخاص بـ X.com. يرجى إعداده من القائمة العلوية.', 'error');
+
+      let selectedAccounts = [];
+      if (tool.requiresAuth) {
+        const checks = document.querySelectorAll('.account-checkbox:checked');
+        checks.forEach(cb => {
+          const acc = xactionsAccounts.find(a => a.id == cb.value);
+          if (acc) selectedAccounts.push(acc);
+        });
+        if (selectedAccounts.length === 0) {
+          return printToTerminal('خطأ: يرجى اختيار حساب واحد على الأقل.', 'error');
+        }
+      } else {
+        selectedAccounts.push({ name: 'System', token: null });
       }
+
       // UI Loading state
       const runBtn = document.getElementById('run-btn');
       const originalBtnHtml = runBtn.innerHTML;
       runBtn.disabled = true;
       runBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري تنفيذ المهمة...';
-      printToTerminal(`[${new Date().toLocaleTimeString()}] بدء تشغيل ${tool.title}...`, 'info');
+      clearTerminal();
+
+      let allResults = [];
+
       try {
-        let url = tool.endpoint;
-        let fetchOptions = {
-          method: tool.method,
-          headers: { 'Content-Type': 'application/json' }
-        };
-        if (token) {
-          fetchOptions.headers['x-auth-token'] = token;
+        for (const acc of selectedAccounts) {
+          let logPrefix = tool.requiresAuth ? `[${acc.name}] ` : '';
+          printToTerminal(`${logPrefix}[${new Date().toLocaleTimeString()}] بدء تشغيل ${tool.title}...`, 'info');
+
+          const method = tool.method || 'GET';
+          let fetchOptions = {
+            method: method,
+            headers: { 'Content-Type': 'application/json' }
+          };
+          if (acc.token) {
+            fetchOptions.headers['x-auth-token'] = acc.token;
+          }
+          if (method === 'GET' || method === 'HEAD') {
+            const searchParams = new URLSearchParams(params);
+            url += `?${searchParams.toString()}`;
+          } else {
+            fetchOptions.body = JSON.stringify({
+              scriptName: tool.scriptName,
+              options: params
+            });
+          }
+          const response = await fetch(url, fetchOptions);
+          const result = await response.json();
+          if (result.success) {
+            let resData = result.data || result.message;
+            allResults.push({ account: acc.name, data: resData });
+
+            if (typeof resData === 'object') {
+              printToTerminal(`${logPrefix}تم التنفيذ بنجاح. تحقق من المخرجات المرفقة.`, 'success');
+            } else {
+              printToTerminal(`${logPrefix}${resData}`, 'success');
+            }
+          } else {
+            printToTerminal(`${logPrefix}خطأ في API: ${result.error}`, 'error');
+          }
         }
-        if (tool.method === 'GET') {
-          const searchParams = new URLSearchParams(params);
-          url += `?${searchParams.toString()}`;
-        } else {
-          fetchOptions.body = JSON.stringify({
-            scriptName: tool.scriptName,
-            options: params
-          });
-        }
-        const response = await fetch(url, fetchOptions);
-        const result = await response.json();
-        if (result.success) {
-          lastResultData = result.data || result.message;
+
+        // Output final JSON if objects were returned
+        if (allResults.length > 0) {
+          // If only 1 result, format as single data array, otherwise map multiple outputs
+          lastResultData = allResults.length === 1 && !tool.requiresAuth ? allResults[0].data : allResults;
           const isObj = typeof lastResultData === 'object';
           document.getElementById('export-controls').style.display = isObj ? 'flex' : 'none';
           if (isObj) {
             const formattedJSON = syntaxHighlightJSON(JSON.stringify(lastResultData, null, 2));
-            document.getElementById('terminal-output').innerHTML = `<pre><code>${formattedJSON}</code></pre>`;
-          } else {
-            printToTerminal(lastResultData, 'success');
+            document.getElementById('terminal-output').innerHTML += `<div class="mt-4 pt-4 border-t border-slate-800 w-full"><pre><code>${formattedJSON}</code></pre></div>`;
           }
-        } else {
-          printToTerminal(`خطأ في API: ${result.error}`, 'error');
         }
       } catch (err) {
         printToTerminal(`خطأ في الشبكة/النظام: ${err.message}`, 'error');
@@ -713,7 +799,14 @@
         runBtn.innerHTML = originalBtnHtml;
       }
     }
+    // Checkbox Helper
+    function selectAllAccounts() {
+      document.querySelectorAll('.account-checkbox').forEach(cb => cb.checked = true);
+    }
     // Terminal Helpers
+    function clearTerminal() {
+      document.getElementById('terminal-output').innerHTML = '';
+    }
     function printToTerminal(text, type = 'normal') {
       const terminal = document.getElementById('terminal-output');
       let color = 'text-slate-300';
@@ -721,28 +814,433 @@
       if (type === 'error') { color = 'text-red-400'; icon = '<i class="fa-solid fa-circle-xmark mr-2"></i>'; }
       if (type === 'success') { color = 'text-green-400'; icon = '<i class="fa-solid fa-check mr-2"></i>'; }
       if (type === 'info') { color = 'text-blue-400'; icon = '<i class="fa-solid fa-info-circle mr-2"></i>'; }
-      terminal.innerHTML = `<div class="${color} flex items-start">${icon}<span>${text}</span></div>`;
+      terminal.innerHTML += `<div class="${color} flex flex-col md:flex-row md:items-start gap-2 mb-2 p-2 bg-[#060b14] border border-darkborder/50 rounded-lg">
+        <div class="mt-0.5 shrink-0">${icon}</div>
+        <span>${text}</span>
+      </div>`;
+      terminal.scrollTop = terminal.scrollHeight;
     }
-    // Auth Token Management
-    function saveAuthToken() {
-      const input = document.getElementById('global-auth-token');
-      const token = input.value.trim();
-      if (token) {
-        localStorage.setItem('xactions_auth_token', token);
-        checkAuthToken();
-        input.value = ''; // clear
-      }
-    }
-    function checkAuthToken() {
-      const hasToken = !!localStorage.getItem('xactions_auth_token');
+    // Accounts Manager Status Badge Dummy (remove old logic)
+    function updateAccountsBadge() {
       const badge = document.getElementById('auth-status-badge');
-      if (hasToken) {
-        badge.className = 'px-2 py-1 rounded-md text-xs font-medium bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center gap-1.5';
-        badge.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]"></span> محدد ونشط';
-      } else {
-        badge.className = 'px-2 py-1 rounded-md text-xs font-medium bg-slate-800 border border-darkborder text-slate-400 flex items-center gap-1.5';
-        badge.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-slate-500"></span> غير محدد';
+      if (badge) {
+        badge.className = 'px-2 py-1 rounded-md text-xs font-medium bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 flex items-center gap-1.5';
+        badge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-indigo-400"></span> ${xactionsAccounts.length} حسابات محفوظة`;
       }
+    }
+    // Accounts Management
+    function openAccountsManager() {
+      document.getElementById('accounts-modal').classList.remove('hidden');
+      renderAccountsList();
+    }
+    function closeAccountsManager() {
+      document.getElementById('accounts-modal').classList.add('hidden');
+      if (currentToolId) selectTool(currentToolId);
+      updateAccountsBadge();
+      editingAccountId = null; // Reset editing state when modal closes
+    }
+
+    // Tool Form Account Filtering & Selection
+    function filterToolAccounts(countryCode) {
+      const rows = document.querySelectorAll('.tool-account-row');
+      rows.forEach(row => {
+        if (countryCode === 'all' || row.dataset.country === countryCode) {
+          row.style.display = 'flex';
+        } else {
+          row.style.display = 'none';
+        }
+      });
+    }
+
+    function selectAllAccounts() {
+      const rows = document.querySelectorAll('.tool-account-row');
+      const visibleCheckboxes = Array.from(rows)
+        .filter(row => row.style.display !== 'none')
+        .map(row => row.querySelector('.account-checkbox'));
+
+      if (visibleCheckboxes.length === 0) return;
+
+      const allChecked = visibleCheckboxes.every(cb => cb.checked);
+      visibleCheckboxes.forEach(cb => cb.checked = !allChecked);
+    }
+
+    let currentCountryFilter = 'all';
+    let editingAccountId = null;
+
+    const allCountries = [
+      { code: 'sa', name: 'السعودية', flag: '🇸🇦' },
+      { code: 'eg', name: 'مصر', flag: '🇪🇬' },
+      { code: 'ae', name: 'الإمارات', flag: '🇦🇪' },
+      { code: 'kw', name: 'الكويت', flag: '🇰🇼' },
+      { code: 'qa', name: 'قطر', flag: '🇶🇦' },
+      { code: 'om', name: 'عُمان', flag: '🇴🇲' },
+      { code: 'bh', name: 'البحرين', flag: '🇧🇭' },
+      { code: 'jo', name: 'الأردن', flag: '🇯🇴' },
+      { code: 'lb', name: 'لبنان', flag: '🇱🇧' },
+      { code: 'sy', name: 'سوريا', flag: '🇸🇾' },
+      { code: 'iq', name: 'العراق', flag: '🇮🇶' },
+      { code: 'ye', name: 'اليمن', flag: '🇾🇪' },
+      { code: 'ma', name: 'المغرب', flag: '🇲🇦' },
+      { code: 'dz', name: 'الجزائر', flag: '🇩🇿' },
+      { code: 'tn', name: 'تونس', flag: '🇹🇳' },
+      { code: 'ly', name: 'ليبيا', flag: '🇱🇾' },
+      { code: 'sd', name: 'السودان', flag: '🇸🇩' },
+      { code: 'ps', name: 'فلسطين', flag: '🇵🇸' },
+      { code: 'mr', name: 'موريتانيا', flag: '🇲🇷' },
+      { code: 'so', name: 'الصومال', flag: '🇸🇴' },
+      { code: 'dj', name: 'جيبوتي', flag: '🇩🇯' },
+      { code: 'km', name: 'جزر القمر', flag: '🇰🇲' },
+      { code: 'us', name: 'الولايات المتحدة', flag: '🇺🇸' },
+      { code: 'gb', name: 'بريطانيا', flag: '🇬🇧' },
+      { code: 'ca', name: 'كندا', flag: '🇨🇦' },
+      { code: 'au', name: 'أستراليا', flag: '🇦🇺' },
+      { code: 'de', name: 'ألمانيا', flag: '🇩🇪' },
+      { code: 'fr', name: 'فرنسا', flag: '🇫🇷' },
+      { code: 'it', name: 'إيطاليا', flag: '🇮🇹' },
+      { code: 'es', name: 'إسبانيا', flag: '🇪🇸' },
+      { code: 'tr', name: 'تركيا', flag: '🇹🇷' },
+      { code: 'in', name: 'الهند', flag: '🇮🇳' },
+      { code: 'pk', name: 'باكستان', flag: '🇵🇰' },
+      { code: 'bd', name: 'بنغلاديش', flag: '🇧🇩' },
+      { code: 'id', name: 'إندونيسيا', flag: '🇮🇩' },
+      { code: 'my', name: 'ماليزيا', flag: '🇲🇾' },
+      { code: 'sg', name: 'سنغافورة', flag: '🇸🇬' },
+      { code: 'jp', name: 'اليابان', flag: '🇯🇵' },
+      { code: 'kr', name: 'كوريا الجنوبية', flag: '🇰🇷' },
+      { code: 'cn', name: 'الصين', flag: '🇨🇳' },
+      { code: 'ru', name: 'روسيا', flag: '🇷🇺' },
+      { code: 'br', name: 'البرازيل', flag: '🇧🇷' },
+      { code: 'ar', name: 'الأرجنتين', flag: '🇦🇷' },
+      { code: 'mx', name: 'المكسيك', flag: '🇲🇽' },
+      { code: 'za', name: 'جنوب أفريقيا', flag: '🇿🇦' },
+      { code: 'ng', name: 'نيجيريا', flag: '🇳🇬' },
+      { code: 'se', name: 'السويد', flag: '🇸🇪' },
+      { code: 'no', name: 'النرويج', flag: '🇳🇴' },
+      { code: 'dk', name: 'الدنمارك', flag: '🇩🇰' },
+      { code: 'fi', name: 'فنلندا', flag: '🇫🇮' },
+      { code: 'nl', name: 'هولندا', flag: '🇳🇱' },
+      { code: 'be', name: 'بلجيكا', flag: '🇧🇪' },
+      { code: 'ch', name: 'سويسرا', flag: '🇨🇭' },
+      { code: 'at', name: 'النمسا', flag: '🇦🇹' },
+      { code: 'gr', name: 'اليونان', flag: '🇬🇷' },
+      { code: 'pt', name: 'البرتغال', flag: '🇵🇹' },
+      { code: 'ie', name: 'أيرلندا', flag: '🇮🇪' },
+      { code: 'nz', name: 'نيوزيلندا', flag: '🇳🇿' },
+      { code: 'af', name: 'أفغانستان', flag: '🇦🇫' },
+      { code: 'al', name: 'ألبانيا', flag: '🇦🇱' },
+      { code: 'ad', name: 'أندورا', flag: '🇦🇩' },
+      { code: 'ao', name: 'أنغولا', flag: '🇦🇴' },
+      { code: 'ag', name: 'أنتيغوا وبربودا', flag: '🇦🇬' },
+      { code: 'am', name: 'أرمينيا', flag: '🇦🇲' },
+      { code: 'az', name: 'أذربيجان', flag: '🇦🇿' },
+      { code: 'bs', name: 'جزر البهاما', flag: '🇧🇸' },
+      { code: 'bb', name: 'باربادوس', flag: '🇧🇧' },
+      { code: 'by', name: 'بيلاروسيا', flag: '🇧🇾' },
+      { code: 'bz', name: 'بليز', flag: '🇧🇿' },
+      { code: 'bj', name: 'بنين', flag: '🇧🇯' },
+      { code: 'bt', name: 'بوتان', flag: '🇧🇹' },
+      { code: 'bo', name: 'بوليفيا', flag: '🇧🇴' },
+      { code: 'ba', name: 'البوسنة والهرسك', flag: '🇧🇦' },
+      { code: 'bw', name: 'بوتسوانا', flag: '🇧🇼' },
+      { code: 'bn', name: 'بروناي', flag: '🇧🇳' },
+      { code: 'bg', name: 'بلغاريا', flag: '🇧🇬' },
+      { code: 'bf', name: 'بوركينا فاسو', flag: '🇧🇫' },
+      { code: 'bi', name: 'بوروندي', flag: '🇧🇮' },
+      { code: 'cv', name: 'الرأس الأخضر', flag: '🇨🇻' },
+      { code: 'kh', name: 'كمبوديا', flag: '🇰🇭' },
+      { code: 'cm', name: 'الكاميرون', flag: '🇨🇲' },
+      { code: 'cf', name: 'جمهورية أفريقيا الوسطى', flag: '🇨🇫' },
+      { code: 'td', name: 'تشاد', flag: '🇹🇩' },
+      { code: 'cl', name: 'تشيلي', flag: '🇨🇱' },
+      { code: 'co', name: 'كولومبيا', flag: '🇨🇴' },
+      { code: 'cg', name: 'الكونغو', flag: '🇨🇬' },
+      { code: 'cd', name: 'جمهورية الكونغو الديمقراطية', flag: '🇨🇩' },
+      { code: 'cr', name: 'كوستاريكا', flag: '🇨🇷' },
+      { code: 'hr', name: 'كرواتيا', flag: '🇭🇷' },
+      { code: 'cu', name: 'كوبا', flag: '🇨🇺' },
+      { code: 'cy', name: 'قبرص', flag: '🇨🇾' },
+      { code: 'cz', name: 'التشيك', flag: '🇨🇿' },
+      { code: 'do', name: 'جمهورية الدومينيكان', flag: '🇩🇴' },
+      { code: 'ec', name: 'الإكوادور', flag: '🇪🇨' },
+      { code: 'sv', name: 'السلفادور', flag: '🇸🇻' },
+      { code: 'gq', name: 'غينيا الاستوائية', flag: '🇬🇶' },
+      { code: 'er', name: 'إريتريا', flag: '🇪🇷' },
+      { code: 'ee', name: 'إستونيا', flag: '🇪🇪' },
+      { code: 'sz', name: 'إسواتيني', flag: '🇸🇿' },
+      { code: 'et', name: 'إثيوبيا', flag: '🇪🇹' },
+      { code: 'fj', name: 'فيجي', flag: '🇫🇯' },
+      { code: 'ga', name: 'الغابون', flag: '🇬🇦' },
+      { code: 'gm', name: 'غامبيا', flag: '🇬🇲' },
+      { code: 'ge', name: 'جورجيا', flag: '🇬🇪' },
+      { code: 'gh', name: 'غانا', flag: '🇬🇭' },
+      { code: 'gd', name: 'غرينادا', flag: '🇬🇩' },
+      { code: 'gt', name: 'غواتيمالا', flag: '🇬🇹' },
+      { code: 'gn', name: 'غينيا', flag: '🇬🇳' },
+      { code: 'gw', name: 'غينيا بيساو', flag: '🇬🇼' },
+      { code: 'gy', name: 'غويانا', flag: '🇬🇾' },
+      { code: 'ht', name: 'هايتي', flag: '🇭🇹' },
+      { code: 'hn', name: 'هندوراس', flag: '🇭🇳' },
+      { code: 'hu', name: 'المجر', flag: '🇭🇺' },
+      { code: 'is', name: 'آيسلندا', flag: '🇮🇸' },
+      { code: 'ir', name: 'إيران', flag: '🇮🇷' },
+      { code: 'ci', name: 'ساحل العاج', flag: '🇨🇮' },
+      { code: 'jm', name: 'جامايكا', flag: '🇯🇲' },
+      { code: 'kz', name: 'كازاخستان', flag: '🇰🇿' },
+      { code: 'ke', name: 'كينيا', flag: '🇰🇪' },
+      { code: 'ki', name: 'كيريباتي', flag: '🇰🇮' },
+      { code: 'kp', name: 'كوريا الشمالية', flag: '🇰🇵' },
+      { code: 'kg', name: 'قيرغيزستان', flag: '🇰🇬' },
+      { code: 'la', name: 'لاوس', flag: '🇱🇦' },
+      { code: 'lv', name: 'لاتفيا', flag: '🇱🇻' },
+      { code: 'ls', name: 'ليسوتو', flag: '🇱🇸' },
+      { code: 'lr', name: 'ليبيريا', flag: '🇱🇷' },
+      { code: 'li', name: 'ليختنشتاين', flag: '🇱🇮' },
+      { code: 'lt', name: 'ليتوانيا', flag: '🇱🇹' },
+      { code: 'lu', name: 'لوكسمبورغ', flag: '🇱🇺' },
+      { code: 'mg', name: 'مدغشقر', flag: '🇲🇬' },
+      { code: 'mw', name: 'ملاوي', flag: '🇲🇼' },
+      { code: 'mv', name: 'المالديف', flag: '🇲🇻' },
+      { code: 'ml', name: 'مالي', flag: '🇲🇱' },
+      { code: 'mt', name: 'مالطا', flag: '🇲🇹' },
+      { code: 'mh', name: 'جزر مارشال', flag: '🇲🇭' },
+      { code: 'mu', name: 'موريشيوس', flag: '🇲🇺' },
+      { code: 'fm', name: 'ميكرونيزيا', flag: '🇫🇲' },
+      { code: 'md', name: 'مولدوفا', flag: '🇲🇩' },
+      { code: 'mc', name: 'موناكو', flag: '🇲🇨' },
+      { code: 'mn', name: 'منغوليا', flag: '🇲🇳' },
+      { code: 'me', name: 'الجبل الأسود', flag: '🇲🇪' },
+      { code: 'mz', name: 'موزمبيق', flag: '🇲🇿' },
+      { code: 'mm', name: 'ميانمار', flag: '🇲🇲' },
+      { code: 'na', name: 'ناميبيا', flag: '🇳🇦' },
+      { code: 'nr', name: 'ناورو', flag: '🇳🇷' },
+      { code: 'np', name: 'نيبال', flag: '🇳🇵' },
+      { code: 'ni', name: 'نيكاراغوا', flag: '🇳🇮' },
+      { code: 'ne', name: 'النيجر', flag: '🇳🇪' },
+      { code: 'mk', name: 'مقدونيا الشمالية', flag: '🇲🇰' },
+      { code: 'pw', name: 'بالاو', flag: '🇵🇼' },
+      { code: 'pa', name: 'بنما', flag: '🇵🇦' },
+      { code: 'pg', name: 'بابوا غينيا الجديدة', flag: '🇵🇬' },
+      { code: 'py', name: 'باراغواي', flag: '🇵🇾' },
+      { code: 'pe', name: 'بيرو', flag: '🇵🇪' },
+      { code: 'ph', name: 'الفلبين', flag: '🇵🇭' },
+      { code: 'pl', name: 'بولندا', flag: '🇵🇱' },
+      { code: 'ro', name: 'رومانيا', flag: '🇷🇴' },
+      { code: 'rw', name: 'رواندا', flag: '🇷🇼' },
+      { code: 'kn', name: 'سانت كيتس ونيفيس', flag: '🇰🇳' },
+      { code: 'lc', name: 'سانت لوسيا', flag: '🇱🇨' },
+      { code: 'vc', name: 'سانت فينسنت والغرينادين', flag: '🇻🇨' },
+      { code: 'ws', name: 'ساموا', flag: '🇼🇸' },
+      { code: 'sm', name: 'سان مارينو', flag: '🇸🇲' },
+      { code: 'st', name: 'ساو تومي وبرينسيب', flag: '🇸🇹' },
+      { code: 'sn', name: 'السنغال', flag: '🇸🇳' },
+      { code: 'rs', name: 'صربيا', flag: '🇷🇸' },
+      { code: 'sc', name: 'سيشل', flag: '🇸🇨' },
+      { code: 'sl', name: 'سيراليون', flag: '🇸🇱' },
+      { code: 'sk', name: 'سلوفاكيا', flag: '🇸🇰' },
+      { code: 'si', name: 'سلوفينيا', flag: '🇸🇮' },
+      { code: 'sb', name: 'جزر سليمان', flag: '🇸🇧' },
+      { code: 'lk', name: 'سريلانكا', flag: '🇱🇰' },
+      { code: 'sr', name: 'سورينام', flag: '🇸🇷' },
+      { code: 'tj', name: 'طاجيكستان', flag: '🇹🇯' },
+      { code: 'tz', name: 'تنزانيا', flag: '🇹🇿' },
+      { code: 'th', name: 'تايلاند', flag: '🇹🇭' },
+      { code: 'tl', name: 'تيمور الشرقية', flag: '🇹🇱' },
+      { code: 'tg', name: 'توغو', flag: '🇹🇬' },
+      { code: 'to', name: 'تونغا', flag: '🇹🇴' },
+      { code: 'tt', name: 'ترينيداد وتوباغو', flag: '🇹🇹' },
+      { code: 'tm', name: 'تركمانستان', flag: '🇹🇲' },
+      { code: 'tv', name: 'توفالو', flag: '🇹🇻' },
+      { code: 'ug', name: 'أوغندا', flag: '🇺🇬' },
+      { code: 'ua', name: 'أوكرانيا', flag: '🇺🇦' },
+      { code: 'uy', name: 'أوروغواي', flag: '🇺🇾' },
+      { code: 'uz', name: 'أوزبكستان', flag: '🇺🇿' },
+      { code: 'vu', name: 'فانواتو', flag: '🇻🇺' },
+      { code: 'va', name: 'الفاتيكان', flag: '🇻🇦' },
+      { code: 've', name: 'فنزويلا', flag: '🇻🇪' },
+      { code: 'vn', name: 'فيتنام', flag: '🇻🇳' },
+      { code: 'zm', name: 'زامبيا', flag: '🇿🇲' },
+      { code: 'zw', name: 'زيمبابوي', flag: '🇿🇼' }
+    ].sort((a, b) => a.name.localeCompare(b.name, 'ar'));
+
+    function populateCountrySelects() {
+      const addSelect = document.getElementById('new-account-country');
+      const filterSelect = document.getElementById('filter-accounts-country');
+
+      if (!addSelect || !filterSelect) return;
+
+      let addHtml = '<option value="global" selected>🌍 غير محدد (عالمي)</option>';
+      let filterHtml = '<option value="all" selected>جميع الدول</option><option value="global">🌍 غير محدد (عالمي)</option>';
+
+      allCountries.forEach(country => {
+        const optionString = `<option value="${country.code}">${country.flag} ${country.name}</option>`;
+        addHtml += optionString;
+        filterHtml += optionString;
+      });
+
+      addSelect.innerHTML = addHtml;
+      filterSelect.innerHTML = filterHtml;
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      populateCountrySelects();
+      syncAccountsWithDb();
+    });
+
+    async function syncAccountsWithDb() {
+      if (xactionsAccounts.length === 0) return;
+      try {
+        await fetch('/api/new_api/accounts/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ accounts: xactionsAccounts })
+        });
+      } catch (err) {
+        console.error('Failed to sync accounts with DB:', err);
+      }
+    }
+
+    function addAccount() {
+      const nameInput = document.getElementById('new-account-name');
+      const tokenInput = document.getElementById('new-account-token');
+      const countryInput = document.getElementById('new-account-country');
+      const name = nameInput.value.trim();
+      const token = tokenInput.value.trim();
+      const country = countryInput.value;
+      if (!name || !token) return alert('يرجى إدخال اسم الحساب ورمز المصادقة.');
+
+      if (editingAccountId) {
+        const index = xactionsAccounts.findIndex(acc => acc.id === editingAccountId);
+        if (index !== -1) {
+          xactionsAccounts[index] = { ...xactionsAccounts[index], name, token, country };
+        }
+        editingAccountId = null;
+        document.getElementById('save-account-btn').innerHTML = 'حفظ الحساب <i class="fa-solid fa-check ml-1"></i>';
+        const cancelBtn = document.getElementById('cancel-edit-btn');
+        if (cancelBtn) cancelBtn.classList.add('hidden');
+      } else {
+        xactionsAccounts.push({ id: Date.now(), name, token, country });
+      }
+
+      localStorage.setItem('xactions_accounts', JSON.stringify(xactionsAccounts));
+      syncAccountsWithDb();
+
+      nameInput.value = '';
+      tokenInput.value = '';
+      countryInput.value = 'global';
+      renderAccountsList();
+    }
+
+    function cancelEdit() {
+      editingAccountId = null;
+      document.getElementById('new-account-name').value = '';
+      document.getElementById('new-account-token').value = '';
+      document.getElementById('new-account-country').value = 'global';
+      document.getElementById('save-account-btn').innerHTML = 'حفظ الحساب <i class="fa-solid fa-check ml-1"></i>';
+      document.getElementById('cancel-edit-btn').classList.add('hidden');
+    }
+
+    function editAccount(id) {
+      const acc = xactionsAccounts.find(a => a.id === id);
+      if (!acc) return;
+      editingAccountId = id;
+      document.getElementById('new-account-name').value = acc.name;
+      document.getElementById('new-account-token').value = acc.token;
+      document.getElementById('new-account-country').value = acc.country || 'global';
+      document.getElementById('save-account-btn').innerHTML = 'تحديث الحساب <i class="fa-solid fa-pen ml-1"></i>';
+
+      let cancelBtn = document.getElementById('cancel-edit-btn');
+      if (!cancelBtn) {
+        cancelBtn = document.createElement('button');
+        cancelBtn.id = 'cancel-edit-btn';
+        cancelBtn.onclick = cancelEdit;
+        cancelBtn.className = "w-full mt-2 bg-slate-800 hover:bg-slate-700 text-white font-medium py-2 rounded-lg text-sm transition-colors border border-slate-700";
+        cancelBtn.innerHTML = 'إلغاء التعديل <i class="fa-solid fa-xmark ml-1"></i>';
+        document.getElementById('save-account-btn').parentElement.appendChild(cancelBtn);
+      }
+      cancelBtn.classList.remove('hidden');
+    }
+
+    function buildFlagEmoji(countryCode) {
+      if (!countryCode || countryCode === 'global' || countryCode === 'other') return '🌍';
+      const country = allCountries.find(c => c.code === countryCode);
+      return country ? country.flag : '🌍';
+    }
+
+    function deleteAccount(id) {
+      if (!confirm('هل أنت متأكد من حذف هذا الحساب؟')) return;
+      xactionsAccounts = xactionsAccounts.filter(acc => acc.id !== id);
+      if (editingAccountId === id) cancelEdit();
+      localStorage.setItem('xactions_accounts', JSON.stringify(xactionsAccounts));
+      syncAccountsWithDb();
+      renderAccountsList();
+    }
+
+    function renderAccountsList() {
+      const list = document.getElementById('accounts-list');
+      const noMsg = document.getElementById('no-accounts-msg');
+      list.innerHTML = '';
+
+      let filteredAccounts = xactionsAccounts;
+      if (currentCountryFilter !== 'all') {
+        filteredAccounts = xactionsAccounts.filter(acc => acc.country === currentCountryFilter);
+      }
+
+      if (filteredAccounts.length === 0) {
+        noMsg.classList.remove('hidden');
+        if (xactionsAccounts.length > 0) {
+          noMsg.innerText = 'لا توجد حسابات لهذه الدولة.';
+        } else {
+          noMsg.innerText = 'لا توجد حسابات محفوظة بعد.';
+        }
+      } else {
+        noMsg.classList.add('hidden');
+        filteredAccounts.forEach(acc => {
+          const item = document.createElement('div');
+
+          let statusBadgeHtml = '';
+          if (acc.isSuspended) {
+            statusBadgeHtml = `<span class="ml-2 px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 text-rose-400 border border-rose-500/30">موقوف</span>`;
+          } else if (acc.isSuspended === false) {
+            statusBadgeHtml = `<span class="ml-2 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">نشط</span>`;
+          }
+
+          const flagEmoji = buildFlagEmoji(acc.country);
+
+          item.className = `flex flex-col sm:flex-row items-start sm:items-center justify-between bg-[#0b1120] p-3 rounded-lg border ${acc.isSuspended ? 'border-rose-500/50 bg-rose-500/5' : 'border-darkborder'} group gap-3`;
+          item.innerHTML = `
+            <div class="flex items-center gap-3 overflow-hidden w-full sm:w-auto">
+              <div class="w-8 h-8 rounded-full ${acc.isSuspended ? 'bg-rose-500/20 text-rose-400' : 'bg-brand-500/20 text-brand-400'} flex items-center justify-center shrink-0">
+                <i class="fa-solid ${acc.isSuspended ? 'fa-user-slash' : 'fa-user'} text-sm"></i>
+              </div>
+              <div class="truncate">
+                <p class="text-sm font-medium ${acc.isSuspended ? 'text-rose-300' : 'text-white'} truncate flex items-center pr-2">
+                    ${acc.name}
+                    <span class="mr-1.5 opacity-80" title="دولة الحساب">${flagEmoji}</span>
+                    ${statusBadgeHtml}
+                </p>
+                <p class="text-xs text-slate-500 font-mono truncate w-32 border-b border-dashed border-slate-700">***${acc.token.slice(-6)}</p>
+              </div>
+            </div>
+            
+            <div class="flex items-center gap-2 w-full sm:w-auto justify-end">
+                <button onclick="openSafeBrowser(${acc.id})" id="browse-btn-${acc.id}" class="text-xs px-2.5 py-1.5 rounded bg-blue-500/10 text-blue-400 hover:text-white hover:bg-blue-600 transition-colors flex items-center gap-1.5 border border-blue-500/30" title="تصفح المتصفح الآمن">
+                  <i class="fa-solid fa-up-right-from-square"></i>
+                </button>
+                <button onclick="checkSingleAccount(${acc.id})" id="check-btn-${acc.id}" class="text-xs px-2.5 py-1.5 rounded bg-slate-800 text-slate-300 hover:text-white hover:bg-slate-700 transition-colors flex items-center gap-1.5 border border-slate-700" title="فحص حالة الحساب">
+                  <i class="fa-solid fa-shield-halved"></i>
+                </button>
+                <button onclick="editAccount(${acc.id})" class="text-slate-400 hover:text-white hover:bg-slate-800 p-2 rounded transition-colors opacity-100 sm:opacity-0 sm:group-hover:opacity-100" title="تعديل الحساب">
+                  <i class="fa-solid fa-pen text-sm"></i>
+                </button>
+                <button onclick="deleteAccount(${acc.id})" class="text-rose-400 hover:text-rose-300 hover:bg-rose-400/10 p-2 rounded transition-colors opacity-100 sm:opacity-0 sm:group-hover:opacity-100" title="حذف الحساب">
+                  <i class="fa-solid fa-trash text-sm"></i>
+                </button>
+            </div>
+          `;
+          list.appendChild(item);
+        });
+      }
+      updateAccountsBadge();
     }
     // Export Utilities
     function copyResults() {
@@ -780,7 +1278,715 @@
         return '<span class="' + cls + '">' + match + '</span>';
       });
     }
+
+    // Browser Login Logic
+    async function loginWithBrowser() {
+      const btn = document.getElementById('btn-browser-login');
+      const originalHtml = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري الفتح...';
+
+      try {
+        const response = await fetch('/api/new_api/login');
+        const data = await response.json();
+
+        if (data.success && data.token) {
+          document.getElementById('new-account-token').value = data.token;
+          if (data.accountName) {
+            document.getElementById('new-account-name').value = data.accountName;
+          }
+          alert('تم تسجيل الدخول واستخراج الرمز بنجاح!');
+        } else {
+          alert('خطأ: ' + (data.error || 'فشل في تسجيل الدخول.'));
+        }
+      } catch (err) {
+        console.error(err);
+        alert('حدث خطأ في الاتصال بالخادم. تأكد من عمل السيرفر.');
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalHtml;
+      }
+    }
+
+    // Safe Browser Logic
+    async function openSafeBrowser(accountId) {
+      const accIndex = xactionsAccounts.findIndex(a => a.id === accountId);
+      if (accIndex === -1) return;
+
+      const acc = xactionsAccounts[accIndex];
+      const btn = document.getElementById(`browse-btn-${accountId}`);
+      const originalHtml = btn.innerHTML;
+
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i>';
+
+      try {
+        const response = await fetch('/api/new_api/safe_browser', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: acc.token })
+        });
+
+        const data = await response.json();
+        if (!data.success) {
+          alert(`فشل فتح المتصفح: ${data.error}`);
+        }
+        // If success, nothing to show, the python window will pop up.
+      } catch (err) {
+        console.error(err);
+        alert('حدث خطأ أثناء الاتصال بالخادم. تأكد من عمل Python و nodriver.');
+      } finally {
+        if (document.getElementById(`browse-btn-${accountId}`)) {
+          document.getElementById(`browse-btn-${accountId}`).disabled = false;
+          document.getElementById(`browse-btn-${accountId}`).innerHTML = originalHtml;
+        }
+      }
+    }
+
+    // Suspension Checker Logic
+    async function checkSingleAccount(accountId) {
+      const accIndex = xactionsAccounts.findIndex(a => a.id === accountId);
+      if (accIndex === -1) return;
+
+      const acc = xactionsAccounts[accIndex];
+      const btn = document.getElementById(`check-btn-${accountId}`);
+      const originalHtml = btn.innerHTML;
+
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i>';
+
+      try {
+        const response = await fetch('/api/new_api/check_suspension', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: acc.token, username: acc.name.split(' ')[0] }) // Pass first word of name as username fallback, or modify to extract handle if saved. Here username is strictly needed by python script. Python script currently strips "@"
+        });
+
+        const data = await response.json();
+        if (data.success) {
+          xactionsAccounts[accIndex].isSuspended = data.isSuspended || data.doesNotExist;
+          localStorage.setItem('xactions_accounts', JSON.stringify(xactionsAccounts));
+          syncAccountsWithDb();
+          renderAccountsList();
+        } else {
+          alert(`فشل ਫحص ${acc.name}: ${data.error}`);
+        }
+      } catch (err) {
+        console.error(err);
+        alert('حدث خطأ أثناء الاتصال بالخادم. تأكد من عمل Python و nodriver.');
+      } finally {
+        if (document.getElementById(`check-btn-${accountId}`)) {
+          document.getElementById(`check-btn-${accountId}`).disabled = false;
+          document.getElementById(`check-btn-${accountId}`).innerHTML = originalHtml;
+        }
+      }
+    }
+
+    async function checkAllAccounts() {
+      if (xactionsAccounts.length === 0) return alert('لا توجد حسابات للفحص');
+
+      const checkAllBtn = document.getElementById('btn-check-all');
+      const originalHtml = checkAllBtn.innerHTML;
+      checkAllBtn.disabled = true;
+      checkAllBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> جاري الفحص...';
+
+      let suspendedCount = 0;
+
+      for (const [index, acc] of xactionsAccounts.entries()) {
+        checkAllBtn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> ${index + 1} / ${xactionsAccounts.length}...`;
+
+        try {
+          const response = await fetch('/api/new_api/check_suspension', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: acc.token, username: acc.name.split(' ')[0] })
+          });
+
+          const data = await response.json();
+          if (data.success) {
+            const isSusp = data.isSuspended || data.doesNotExist;
+            xactionsAccounts[index].isSuspended = isSusp;
+            if (isSusp) suspendedCount++;
+          }
+        } catch (err) {
+          console.error(`Error checking ${acc.name}:`, err);
+        }
+      }
+
+      localStorage.setItem('xactions_accounts', JSON.stringify(xactionsAccounts));
+      syncAccountsWithDb();
+      renderAccountsList();
+
+      checkAllBtn.disabled = false;
+      checkAllBtn.innerHTML = originalHtml;
+      alert(`تم فحص ${xactionsAccounts.length} حسابات. تم العثور على ${suspendedCount} حساب موقوف/غير موجود.`);
+    }
+
+    let editingCampaignId = null;
+
+    // --- Campaigns Logic ---
+    function renderCampaignBuilder(container) {
+      container.innerHTML = `
+          <div class="flex items-center justify-between">
+            <h3 class="text-sm font-bold text-white flex items-center gap-2">
+              <i class="fa-solid fa-bullhorn text-brand-400"></i> إعداد الحملة الجديدة
+            </h3>
+            <button type="button" onclick="openCampaignsManager()" class="text-xs px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-all flex items-center gap-2">
+              <i class="fa-solid fa-list-ul"></i> إدارة الحملات السابقة
+            </button>
+          </div>
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="block text-xs font-semibold uppercase text-slate-400 mb-1.5">اسم الحملة</label>
+              <input type="text" id="campaign-name" class="w-full bg-slate-900/50 border border-darkborder rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-brand-500" placeholder="حملة العيد 2024">
+            </div>
+            <div>
+              <label class="block text-xs font-semibold uppercase text-slate-400 mb-1.5">الجدولة (اختياري)</label>
+              <input type="datetime-local" id="campaign-schedule" class="w-full bg-slate-900/50 border border-darkborder rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-brand-500">
+            </div>
+          </div>
+          <div id="campaign-account-selector"></div>
+          <div class="bg-darkcard border border-darkborder rounded-2xl overflow-hidden shadow-xl">
+            <div class="flex border-b border-darkborder bg-slate-900/80 p-1">
+              <button type="button" onclick="switchCampaignTab('tweets')" class="campaign-tab-btn flex-1 py-2.5 text-xs font-bold rounded-xl transition-all text-brand-400 bg-brand-500/10 active" data-tab="tweets"><i class="fa-solid fa-feather-pointed mr-1"></i> تغريدات</button>
+              <button type="button" onclick="switchCampaignTab('replies')" class="campaign-tab-btn flex-1 py-2.5 text-xs font-bold rounded-xl transition-all text-slate-400 hover:text-white" data-tab="replies"><i class="fa-solid fa-reply mr-1"></i> ردود</button>
+              <button type="button" onclick="switchCampaignTab('quotes')" class="campaign-tab-btn flex-1 py-2.5 text-xs font-bold rounded-xl transition-all text-slate-400 hover:text-white" data-tab="quotes"><i class="fa-solid fa-quote-left mr-1"></i> اقتباسات</button>
+              <button type="button" onclick="switchCampaignTab('messages')" class="campaign-tab-btn flex-1 py-2.5 text-xs font-bold rounded-xl transition-all text-slate-400 hover:text-white" data-tab="messages"><i class="fa-solid fa-envelope mr-1"></i> رسائل</button>
+            </div>
+            <div class="p-6 min-h-[350px] bg-slate-900/40 text-right" dir="rtl">
+              <div id="tab-tweets" class="campaign-tab-content space-y-4">
+                <div id="tweets-list" class="space-y-3"></div>
+                <button type="button" onclick="addCampaignRow('tweets')" class="w-full py-3 border-2 border-dashed border-darkborder rounded-xl text-slate-500 hover:text-brand-400 hover:border-brand-500/50 transition-all text-xs font-bold flex items-center justify-center gap-2">+ إضافة تغريدة جديدة</button>
+              </div>
+              <div id="tab-replies" class="campaign-tab-content hidden space-y-4">
+                <div id="replies-list" class="space-y-3"></div>
+                <button type="button" onclick="addCampaignRow('replies')" class="w-full py-3 border-2 border-dashed border-darkborder rounded-xl text-slate-500 hover:text-brand-400 hover:border-brand-500/50 transition-all text-xs font-bold flex items-center justify-center gap-2">+ إضافة رد استهدافي</button>
+              </div>
+              <div id="tab-quotes" class="campaign-tab-content hidden space-y-4">
+                <div id="quotes-list" class="space-y-3"></div>
+                <button type="button" onclick="addCampaignRow('quotes')" class="w-full py-3 border-2 border-dashed border-darkborder rounded-xl text-slate-500 hover:text-brand-400 hover:border-brand-500/50 transition-all text-xs font-bold flex items-center justify-center gap-2">+ إضافة اقتباس جديد</button>
+              </div>
+              <div id="tab-messages" class="campaign-tab-content hidden space-y-4">
+                <div id="messages-list" class="space-y-3"></div>
+                <button type="button" onclick="addCampaignRow('messages')" class="w-full py-3 border-2 border-dashed border-darkborder rounded-xl text-slate-500 hover:text-brand-400 hover:border-brand-500/50 transition-all text-xs font-bold flex items-center justify-center gap-2">+ إضافة رسالة خاصة</button>
+              </div>
+            </div>
+          </div>
+          <div class="flex gap-3">
+            <button type="button" onclick="saveCampaignToDb()" class="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold py-3.5 rounded-xl border border-slate-700 transition-all flex items-center justify-center gap-2">
+              <i class="fa-solid fa-save"></i> حفظ المسودة
+            </button>
+            <button type="button" onclick="runCampaignNow(event)" class="flex-[2] bg-brand-600 hover:bg-brand-500 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-brand-500/20 transition-all flex items-center justify-center gap-2 transform hover:-translate-y-0.5">
+              <i class="fa-solid fa-play"></i> تشغيل الحملة الآن
+            </button>
+          </div>
+        </div>
+      `;
+      const accPlaceholder = document.getElementById('campaign-account-selector');
+      let filterOptions = '<option value="all">جميع الدول</option>';
+      allCountries.forEach(c => filterOptions += `<option value="${c.code}">${c.flag} ${c.name}</option>`);
+      accPlaceholder.innerHTML = `
+        <div class="mb-4 border border-darkborder rounded-xl bg-slate-900/40 overflow-hidden">
+          <div class="bg-slate-900 px-4 py-2 border-b border-darkborder flex items-center justify-between">
+            <h4 class="text-sm font-semibold text-white flex items-center gap-2"><i class="fa-solid fa-users text-brand-400"></i> الحسابات المشاركة</h4>
+            <select id="campaign-acc-filter" onchange="filterToolAccounts(this.value)" class="bg-slate-800 border border-slate-700 text-xs text-slate-300 rounded px-2 py-1 outline-none">${filterOptions}</select>
+          </div>
+          <div class="p-3 space-y-2 max-h-40 overflow-y-auto custom-scrollbar text-right" id="campaign-accounts-list" dir="rtl">
+            ${xactionsAccounts.map(acc => `
+              <label class="flex items-center gap-3 hover:bg-slate-800/50 p-2 rounded-lg cursor-pointer transition-colors tool-account-row" data-country="${acc.country || 'global'}">
+                <input type="checkbox" name="target_accounts" value="${acc.id}" class="w-4 h-4 text-brand-500 bg-slate-900 border-darkborder rounded account-checkbox">
+                <span class="text-xs text-slate-300">${buildFlagEmoji(acc.country)} ${acc.name}</span>
+              </label>
+            `).join('')}
+          </div>
+        </div>
+      `;
+      addCampaignRow('tweets');
+    }
+
+    function switchCampaignTab(tabId) {
+      document.querySelectorAll('.campaign-tab-content').forEach(el => el.classList.add('hidden'));
+      document.getElementById(`tab-${tabId}`).classList.remove('hidden');
+      document.querySelectorAll('.campaign-tab-btn').forEach(btn => {
+        btn.className = btn.className.replace('active bg-brand-500/10 text-brand-400', 'text-slate-400').replace('text-slate-400', 'text-slate-400');
+        if (btn.dataset.tab === tabId) btn.className = btn.className.replace('text-slate-400', 'active bg-brand-500/10 text-brand-400');
+      });
+    }
+
+    function updateCampaignTargetOptions() {
+      const tweets = Array.from(document.querySelectorAll('#tweets-list > div')).map(row => ({
+        id: row.querySelector('.camp-ref-id').value,
+        text: row.querySelector('.camp-text').value.substring(0, 30) + '...'
+      }));
+
+      document.querySelectorAll('.camp-target-select').forEach(select => {
+        const currentVal = select.value;
+        select.innerHTML = '<option value="">-- اختر التغريدة المستهدفة --</option>' +
+          tweets.map(t => `<option value="${t.id}">${t.id}: ${t.text}</option>`).join('') +
+          '<option value="manual">-- إدخال رابط يدوي --</option>';
+        if (Array.from(select.options).some(opt => opt.value === currentVal)) select.value = currentVal;
+      });
+    }
+
+    function addCampaignRow(type, initialData = null) {
+      const container = document.getElementById(`${type}-list`);
+      const rowId = 'row-' + Math.random().toString(36).substr(2, 9);
+      const div = document.createElement('div');
+      div.className = 'p-4 bg-slate-900/60 border border-darkborder rounded-xl relative group animate-fade-in-up text-right';
+      div.id = rowId;
+      div.dir = 'rtl';
+
+      let refId = initialData?.refId || '';
+      if (type === 'tweets' && !refId) {
+        const count = document.querySelectorAll('#tweets-list > div').length + 1;
+        refId = `t${count}`;
+      }
+
+      const idField = `<input type="text" class="bg-slate-800/50 border border-darkborder rounded px-2 py-0.5 text-[10px] text-slate-400 focus:outline-none focus:border-brand-500 w-20 camp-ref-id" placeholder="t1" value="${refId}" dir="ltr" oninput="updateCampaignTargetOptions()">`;
+      const textVal = initialData?.text || '';
+
+      let inputHtml = '';
+      if (type === 'tweets') {
+        inputHtml = `
+          <div class="flex justify-between items-center mb-2">
+            <span class="text-[10px] text-slate-500 font-bold uppercase tracking-wider">تغريدة جديدة</span>
+            ${idField}
+          </div>
+          <textarea class="w-full bg-transparent border-none text-sm text-white focus:ring-0 p-0 resize-none camp-text" placeholder="ماذا تريد أن تغرد؟" rows="2" oninput="updateCampaignTargetOptions()">${textVal}</textarea>
+        `;
+      } else if (type === 'messages') {
+        const targetVal = initialData?.target || '';
+        inputHtml = `
+          <div class="flex justify-between items-center mb-2">
+            <span class="text-[10px] text-slate-500 font-bold uppercase tracking-wider">رسالة خاصة</span>
+          </div>
+          <input type="text" class="w-full bg-transparent border-none text-[11px] text-brand-400 focus:ring-0 p-0 mb-1 camp-target" placeholder="اسم المستخدم المرسل إليه..." dir="ltr" value="${targetVal}">
+          <textarea class="w-full bg-transparent border-none text-sm text-white focus:ring-0 p-0 resize-none camp-text" placeholder="نص الرسالة..." rows="2">${textVal}</textarea>
+        `;
+      } else {
+        // Replies or Quotes
+        let targetVal = initialData?.target || '';
+        let isManual = false;
+        let selectedRef = '';
+        if (targetVal.startsWith('{{') && targetVal.endsWith('}}')) {
+          selectedRef = targetVal.slice(2, -2);
+          targetVal = '';
+        } else if (targetVal) {
+          isManual = true;
+        }
+
+        inputHtml = `
+          <div class="flex justify-between items-center mb-2">
+            <span class="text-[10px] text-slate-500 font-bold uppercase tracking-wider">${type === 'replies' ? 'رد استهدافي' : 'اقتباس استهدافي'}</span>
+          </div>
+          <div class="space-y-2 mb-2">
+            <select class="w-full bg-slate-800/50 border border-darkborder rounded-lg px-2 py-1.5 text-xs text-slate-300 focus:outline-none focus:border-brand-500 camp-target-select" onchange="this.nextElementSibling.style.display = (this.value === 'manual' ? 'block' : 'none')">
+              <option value="">-- تحميل التغريدات... --</option>
+              ${isManual ? '<option value="manual" selected>-- إدخال رابط يدوي --</option>' : ''}
+              ${selectedRef ? `<option value="${selectedRef}" selected>${selectedRef}</option>` : ''}
+            </select>
+            <input type="text" class="w-full bg-transparent border border-darkborder/50 rounded-lg px-2 py-1 text-[11px] text-brand-400 focus:ring-0 camp-target ${isManual ? '' : 'hidden'}" placeholder="رابط التغريدة (URL)..." dir="ltr" value="${targetVal}">
+          </div>
+          <textarea class="w-full bg-transparent border-none text-sm text-white focus:ring-0 p-0 resize-none camp-text" placeholder="نص المحتوى..." rows="2">${textVal}</textarea>
+        `;
+      }
+
+      div.innerHTML = `${inputHtml}
+        <div class="flex items-center justify-between mt-3 pt-3 border-t border-darkborder/30">
+          <input type="hidden" class="camp-media-path" value="${initialData?.media || ''}">
+          <input type="file" id="media-upload-${rowId}" class="hidden" accept="image/*,video/*" onchange="handleCampaignMediaUpload(event, '${rowId}')">
+          <label for="media-upload-${rowId}" id="media-btn-${rowId}" class="cursor-pointer text-[10px] ${initialData?.media ? 'text-brand-400 font-bold' : 'text-slate-500 hover:text-brand-400'} flex items-center gap-1 transition-colors">
+            <i class="fa-regular ${initialData?.media ? 'fa-image' : 'fa-image'}"></i> 
+            <span class="btn-text">${initialData?.media ? 'صورة مرفقة' : 'صورة'}</span>
+          </label>
+          <button type="button" onclick="document.getElementById('${rowId}').remove(); updateCampaignTargetOptions();" class="text-rose-500/50 hover:text-rose-500"><i class="fa-solid fa-trash-can text-xs"></i></button>
+        </div>`;
+      container.appendChild(div);
+
+      updateCampaignTargetOptions();
+    }
+
+    async function handleCampaignMediaUpload(event, rowId) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      const btn = document.getElementById(`media-btn-${rowId}`);
+      const btnText = btn.querySelector('.btn-text');
+      const icon = btn.querySelector('i');
+      const hiddenInput = document.querySelector(`#${rowId} .camp-media-path`);
+
+      const originalText = btnText.innerText;
+
+      try {
+        btnText.innerText = 'جاري الرفع...';
+        icon.className = 'fa-solid fa-spinner fa-spin';
+        btn.classList.add('opacity-50', 'cursor-not-allowed');
+
+        const extension = file.name.split('.').pop();
+
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = async () => {
+          const fileBase64 = reader.result;
+
+          try {
+            const res = await fetch('/api/new_api/upload_media', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ fileBase64, extension })
+            });
+            const result = await res.json();
+
+            if (result.success) {
+              hiddenInput.value = result.filePath;
+              btnText.innerText = 'صورة مرفقة';
+              icon.className = 'fa-regular fa-image';
+              btn.className = 'text-[10px] text-brand-400 font-bold flex items-center gap-1 transition-colors';
+            } else {
+              alert('فشل رفع الملف: ' + result.error);
+              btnText.innerText = originalText;
+              icon.className = 'fa-regular fa-image';
+              btn.classList.remove('opacity-50', 'cursor-not-allowed');
+            }
+          } catch (err) {
+            alert('فشل الاتصال بالخادم أثناء الرفع');
+            btnText.innerText = originalText;
+            icon.className = 'fa-regular fa-image';
+            btn.classList.remove('opacity-50', 'cursor-not-allowed');
+          }
+        };
+        reader.onerror = error => {
+          alert('فشل قراءة الملف: ' + error);
+          btnText.innerText = originalText;
+          icon.className = 'fa-regular fa-image';
+          btn.classList.remove('opacity-50', 'cursor-not-allowed');
+        };
+      } catch (error) {
+        console.error("Error converting file:", error);
+      }
+    }
+
+    async function saveCampaignToDb() {
+      const name = document.getElementById('campaign-name').value;
+      if (!name) {
+        alert('يرجى إدخال اسم للحملة');
+        return null;
+      }
+      const accounts = Array.from(document.querySelectorAll('#campaign-accounts-list .account-checkbox:checked')).map(cb => cb.value);
+
+      const extract = (typeId) => Array.from(document.querySelectorAll(`#${typeId}-list > div`)).map(row => {
+        const select = row.querySelector('.camp-target-select');
+        let target = row.querySelector('.camp-target')?.value;
+        if (select && select.value && select.value !== 'manual') {
+          target = `{{${select.value}}}`;
+        }
+        return {
+          refId: row.querySelector('.camp-ref-id')?.value?.trim(),
+          text: row.querySelector('.camp-text')?.value,
+          target: target,
+          media: row.querySelector('.camp-media-path')?.value || null
+        };
+      }).filter(c => (c.text && c.text.trim()) || (c.target && c.target.trim()) || c.media);
+
+      const campaignData = {
+        id: editingCampaignId,
+        name,
+        schedule: document.getElementById('campaign-schedule').value || null,
+        config: { target_accounts: accounts },
+        content: {
+          tweets: extract('tweets'),
+          replies: extract('replies'),
+          quotes: extract('quotes'),
+          messages: extract('messages')
+        }
+      };
+      try {
+        const res = await fetch('/api/new_api/campaigns', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(campaignData) });
+        const result = await res.json();
+        if (result.success) {
+          alert('تم حفظ الحملة بنجاح!');
+          editingCampaignId = result.data.id; // Store ID for future updates
+          return result.data;
+        } else {
+          alert('خطأ: ' + result.error);
+          return null;
+        }
+      } catch (e) {
+        alert('فشل الاتصال بالخادم');
+        return null;
+      }
+    }
+
+    function openCampaignsManager() {
+      document.getElementById('campaigns-modal').classList.remove('hidden');
+      loadCampaignsList();
+    }
+
+    function closeCampaignsManager() {
+      document.getElementById('campaigns-modal').classList.add('hidden');
+    }
+
+    async function loadCampaignsList() {
+      const container = document.getElementById('campaigns-list-container');
+      container.innerHTML = '<div class="col-span-full py-12 text-center text-slate-500"><i class="fa-solid fa-spinner fa-spin text-2xl mb-4 block"></i>جاري تحميل الحملات...</div>';
+
+      try {
+        const res = await fetch('/api/new_api/campaigns');
+        const result = await res.json();
+        if (result.success) {
+          if (result.data.length === 0) {
+            container.innerHTML = '<div class="col-span-full py-12 text-center text-slate-500">لا توجد حملات محفوظة بعد.</div>';
+            return;
+          }
+          container.innerHTML = '';
+          result.data.forEach(camp => {
+            const card = document.createElement('div');
+            card.className = "bg-slate-900/60 border border-darkborder p-4 rounded-2xl flex flex-col justify-between gap-4 group hover:border-brand-500/50 transition-all";
+            card.innerHTML = `
+              <div class="flex items-start justify-between gap-3">
+                <div class="overflow-hidden">
+                  <h4 class="font-bold text-white truncate text-sm" title="${camp.name}">${camp.name}</h4>
+                  <p class="text-[10px] text-slate-500 font-mono mt-0.5">${new Date(camp.createdAt).toLocaleDateString('ar-EG')} - ${camp.status || 'draft'}</p>
+                </div>
+                <div class="flex gap-1.5 shrink-0">
+                  <button onclick="quickRunCampaign('${camp.id}')" class="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500 hover:text-white transition-all flex items-center justify-center border border-emerald-500/20" title="تشغيل الآن">
+                    <i class="fa-solid fa-play text-[10px]"></i>
+                  </button>
+                  <button onclick="editCampaign('${camp.id}')" class="w-8 h-8 rounded-lg bg-blue-500/10 text-blue-400 hover:bg-blue-600 hover:text-white transition-all flex items-center justify-center border border-blue-500/20" title="تعديل">
+                    <i class="fa-solid fa-pen text-[10px]"></i>
+                  </button>
+                  <button onclick="deleteCampaignFromList('${camp.id}')" class="w-8 h-8 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500 hover:text-white transition-all flex items-center justify-center border border-rose-500/20" title="حذف">
+                    <i class="fa-solid fa-trash text-[10px]"></i>
+                  </button>
+                </div>
+              </div>
+            `;
+            container.appendChild(card);
+          });
+        }
+      } catch (e) {
+        container.innerHTML = '<div class="col-span-full py-12 text-center text-rose-400">فشل تحميل الحملات.</div>';
+      }
+    }
+
+    async function editCampaign(id) {
+      try {
+        // We fetch the full list or single if API supported, but here list works
+        const res = await fetch('/api/new_api/campaigns');
+        const result = await res.json();
+        const camp = result.data.find(c => c.id === id);
+        if (!camp) return alert('الحملة غير موجودة');
+
+        // Populate builder
+        editingCampaignId = camp.id;
+        document.getElementById('campaign-name').value = camp.name;
+        document.getElementById('campaign-schedule').value = camp.schedule ? camp.schedule.slice(0, 16) : '';
+
+        const config = JSON.parse(camp.config || '{}');
+        const content = JSON.parse(camp.content || '{}');
+
+        // Reset and Populate Tabs
+        ['tweets', 'replies', 'quotes', 'messages'].forEach(type => {
+          const list = document.getElementById(`${type}-list`);
+          list.innerHTML = '';
+          if (content[type] && Array.isArray(content[type])) {
+            content[type].forEach(row => {
+              addCampaignRow(type, row);
+            });
+          }
+        });
+
+        // Select Accounts
+        const accountsList = document.querySelectorAll('#campaign-accounts-list .account-checkbox');
+        const targetAccs = config.target_accounts || [];
+        accountsList.forEach(cb => {
+          cb.checked = targetAccs.includes(cb.value);
+        });
+
+        closeCampaignsManager();
+        alert('تم تحميل الحملة للمحرر بنجاح!');
+      } catch (e) {
+        console.error(e);
+        alert('خطأ في تحميل الحملة');
+      }
+    }
+
+    async function quickRunCampaign(id) {
+      if (!confirm('هل تريد تشغيل هذه الحملة في الخلفية الآن؟')) return;
+      try {
+        await syncAccountsWithDb();
+        const res = await fetch(`/api/new_api/campaigns/${id}/execute`, { method: 'POST' });
+        const result = await res.json();
+        if (result.success) {
+          alert('بدأ تنفيذ الحملة في الخلفية بنجاح!');
+          closeCampaignsManager();
+        } else {
+          alert('خطأ: ' + result.error);
+        }
+      } catch (e) {
+        alert('فشل بدء الحملة');
+      }
+    }
+
+    async function deleteCampaignFromList(id) {
+      if (!confirm('هل أنت متأكد من حذف هذه الحملة نهائياً؟')) return;
+      try {
+        const res = await fetch(`/api/new_api/campaigns/${id}`, { method: 'DELETE' });
+        const result = await res.json();
+        if (result.success) {
+          loadCampaignsList();
+        } else {
+          alert('خطأ في الحذف');
+        }
+      } catch (e) {
+        alert('فشل الاتصال بالخادم');
+      }
+    }
+
+    async function runCampaignNow(event) {
+      const btn = event.currentTarget;
+      const originalHtml = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> جاري البدء...';
+
+      try {
+        await syncAccountsWithDb();
+        const campaign = await saveCampaignToDb();
+        if (!campaign) return;
+
+        const res = await fetch(`/api/new_api/campaigns/${campaign.id}/execute`, { method: 'POST' });
+        const result = await res.json();
+        if (result.success) {
+          alert('بدأ تنفيذ الحملة في الخلفية بنجاح!');
+        } else {
+          alert('خطأ: ' + result.error);
+        }
+      } catch (e) {
+        alert('فشل بدء الحملة');
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalHtml;
+      }
+    }
+
   </script>
+
+  <!-- Accounts Manager Modal -->
+  <div id="accounts-modal"
+    class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden flex items-center justify-center">
+    <div
+      class="bg-darkcard border border-darkborder rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden transform transition-all">
+      <div class="px-6 py-4 border-b border-darkborder flex items-center justify-between bg-slate-900/50">
+        <h3 class="text-lg font-bold text-white flex items-center gap-2">
+          <i class="fa-solid fa-users text-brand-400"></i>
+          إدارة الحسابات
+        </h3>
+        <div class="flex items-center gap-3">
+          <button onclick="checkAllAccounts()" id="btn-check-all"
+            class="text-xs px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg transition border border-slate-700 flex items-center gap-2">
+            <i class="fa-solid fa-shield-halved text-brand-400"></i> فحص جميع الحسابات
+          </button>
+          <button onclick="closeAccountsManager()" class="text-slate-400 hover:text-white transition-colors p-1">
+            <i class="fa-solid fa-xmark text-lg"></i>
+          </button>
+        </div>
+      </div>
+
+      <div class="p-6">
+        <!-- Add Account Form -->
+        <div class="bg-slate-900/50 rounded-xl p-4 border border-darkborder mb-6">
+          <h4 class="text-sm font-semibold text-white mb-3 flex items-center gap-2">
+            <i class="fa-solid fa-plus text-emerald-400"></i> إضافة حساب جديد
+          </h4>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-3">
+            <div>
+              <label class="block text-xs text-slate-400 mb-1">اسم الحساب (للتوضيح فقط)</label>
+              <input type="text" id="new-account-name" placeholder="مثال: الحساب الأساسي"
+                class="w-full bg-[#0b1120] border border-darkborder rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-brand-500">
+            </div>
+            <div>
+              <label class="block text-xs text-slate-400 mb-1">دولة الحساب</label>
+              <select id="new-account-country"
+                class="w-full bg-[#0b1120] border border-darkborder rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-brand-500 appearance-none bg-no-repeat bg-[url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%2394a3b8%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px_12px] bg-[position:left_12px_center]">
+                <!-- Injected via JS -->
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs text-slate-400 mb-1">رمز auth_token</label>
+              <div class="flex gap-2">
+                <input type="password" id="new-account-token" placeholder="رمز المصادقة..."
+                  class="flex-1 w-full bg-[#0b1120] border border-darkborder rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-brand-500 font-mono"
+                  dir="ltr">
+                <button type="button" id="btn-browser-login" onclick="loginWithBrowser()"
+                  class="bg-blue-600/20 text-blue-400 hover:bg-blue-600 hover:text-white border border-blue-500/30 font-medium px-3 py-2 rounded-lg text-xs transition-colors whitespace-nowrap flex items-center gap-2"
+                  title="استخراج التوكن عبر المتصفح تلقائياً">
+                  <i class="fa-brands fa-x-twitter"></i> تسجيل بالمتصفح
+                </button>
+              </div>
+            </div>
+          </div>
+          <div>
+            <button onclick="addAccount()" id="save-account-btn"
+              class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-medium py-2 rounded-lg text-sm transition-colors">
+              حفظ الحساب <i class="fa-solid fa-check ml-1"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- Accounts List -->
+        <div>
+          <div class="flex items-center justify-between mb-3 border-b border-darkborder/50 pb-2">
+            <h4 class="text-sm font-semibold text-white">الحسابات المحفوظة</h4>
+            <div class="flex items-center gap-2">
+              <label class="text-xs text-slate-400">تصفية:</label>
+              <select id="filter-accounts-country" onchange="currentCountryFilter = this.value; renderAccountsList();"
+                class="bg-[#0b1120] border border-darkborder rounded p-1 text-xs text-slate-300 focus:outline-none focus:border-brand-500 appearance-none bg-no-repeat bg-[url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%2394a3b8%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:10px_10px] bg-[position:left_6px_center] pl-5 pr-2 w-32">
+                <!-- Injected via JS -->
+              </select>
+            </div>
+          </div>
+          <div id="accounts-list" class="space-y-2 max-h-60 overflow-y-auto pr-1 custom-scrollbar">
+            <!-- Account items will be appended here by JS -->
+          </div>
+          <div id="no-accounts-msg" class="text-center py-6 text-slate-500 text-sm hidden">
+            لا توجد حسابات محفوظة بعد.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- Campaigns Manager Modal -->
+  <div id="campaigns-modal"
+    class="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm hidden">
+    <div
+      class="bg-darkcard w-full max-w-4xl max-h-[90vh] rounded-3xl border border-darkborder shadow-2xl flex flex-col overflow-hidden animate-fade-in border-t-4 border-t-brand-500">
+      <div class="p-6 border-b border-darkborder flex items-center justify-between bg-slate-900/50">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded-xl bg-brand-500/10 flex items-center justify-center text-brand-400">
+            <i class="fa-solid fa-bullhorn text-lg"></i>
+          </div>
+          <div>
+            <h3 class="text-xl font-bold text-white leading-tight">إدارة الحملات</h3>
+            <p class="text-sm text-slate-400">عرض، تعديل، أو تشغيل حملاتك السابقة</p>
+          </div>
+        </div>
+        <button onclick="closeCampaignsManager()"
+          class="w-10 h-10 rounded-xl hover:bg-slate-800 text-slate-400 transition-colors flex items-center justify-center">
+          <i class="fa-solid fa-times text-xl"></i>
+        </button>
+      </div>
+
+      <div class="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar bg-[#0f172a]/30">
+        <div id="campaigns-list-container" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <!-- Campaigns will be loaded here -->
+          <div class="col-span-full py-12 text-center text-slate-500">
+            <i class="fa-solid fa-spinner fa-spin text-2xl mb-4 block"></i>
+            جاري تحميل الحملات...
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
 </body>
 
 </html>

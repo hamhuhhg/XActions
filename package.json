@@ -57,6 +57,7 @@
     "jsonwebtoken": "^9.0.2",
     "morgan": "^1.10.0",
     "ora": "^8.0.0",
+    "patchright": "^1.57.0",
     "prisma": "^5.7.1",
     "puppeteer": "^24.34.0",
     "puppeteer-extra": "^3.3.6",

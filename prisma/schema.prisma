@@ -237,3 +237,34 @@ model AccountSnapshot {
   @@index([username, type])
   @@index([createdAt])
 }
+
+model Campaign {
+  id          String   @id @default(cuid())
+  name        String
+  platform    String   @default("twitter")
+  status      String   @default("draft") // draft, scheduled, active, completed, paused
+  schedule    DateTime?
+  
+  // Stored as JSON strings
+  config      String?  // { country: string, target_accounts: string[] }
+  content     String?  // { tweets: [], replies: [], quotes: [], messages: [] }
+  stats       String?  // { success: total, failed: total, logs: [] }
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+model XAccount {
+  id          String   @id @default(cuid())
+  name        String
+  token       String
+  country     String?
+  isSuspended Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([name])
+}

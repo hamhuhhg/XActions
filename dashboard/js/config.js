@@ -6,29 +6,25 @@
  */
 
 const CONFIG = {
-  // API Base URL - auto-detects environment
-  API_BASE: window.location.hostname === 'localhost' 
-    ? 'http://localhost:3001/api'
-    : '/api',
-  
+  // API Base URL - use relative path to adapt to any backend PORT
+  API_BASE: '/api',
+
   // WebSocket URL for real-time updates
-  WS_URL: window.location.hostname === 'localhost'
-    ? 'http://localhost:3001'
-    : window.location.origin,
-  
+  WS_URL: window.location.origin,
+
   // Railway API URL (if needed for cross-origin)
   RAILWAY_URL: 'https://xactions-api.up.railway.app',
-  
+
   // App version
   VERSION: '1.0.0',
-  
+
   // Default rate limiting delays (ms)
   DELAYS: {
     MIN: 1500,
     MAX: 3000,
     BETWEEN_REQUESTS: 2000
   },
-  
+
   // Pagination defaults
   PAGINATION: {
     DEFAULT_LIMIT: 100,
@@ -44,14 +40,14 @@ const CONFIG = {
  */
 async function apiRequest(endpoint, options = {}) {
   const authToken = localStorage.getItem('authToken');
-  
+
   const defaultOptions = {
     headers: {
       'Content-Type': 'application/json',
       ...(authToken && { 'Authorization': `Bearer ${authToken}` })
     }
   };
-  
+
   const mergedOptions = {
     ...defaultOptions,
     ...options,
@@ -60,18 +56,18 @@ async function apiRequest(endpoint, options = {}) {
       ...(options.headers || {})
     }
   };
-  
-  const url = endpoint.startsWith('http') 
-    ? endpoint 
+
+  const url = endpoint.startsWith('http')
+    ? endpoint
     : `${CONFIG.API_BASE}${endpoint}`;
-  
+
   const response = await fetch(url, mergedOptions);
   const data = await response.json();
-  
+
   if (!response.ok) {
     throw new Error(data.error || data.message || 'Request failed');
   }
-  
+
   return data;
 }
 
@@ -99,28 +95,28 @@ async function pollOperationStatus(operationId, onProgress, onComplete, onError)
   const poll = async () => {
     try {
       const data = await apiRequest(`/ai/action/status/${operationId}`);
-      
+
       if (onProgress && data.progress) {
         onProgress(data.progress);
       }
-      
+
       if (data.status === 'completed') {
         if (onComplete) onComplete(data);
         return;
       }
-      
+
       if (data.status === 'failed') {
         if (onError) onError(data.error || 'Operation failed');
         return;
       }
-      
+
       // Continue polling
       setTimeout(poll, 2000);
     } catch (error) {
       if (onError) onError(error.message);
     }
   };
-  
+
   poll();
 }
 
@@ -151,7 +147,7 @@ function formatDate(dateStr) {
 function timeAgo(dateStr) {
   const date = new Date(dateStr);
   const seconds = Math.floor((new Date() - date) / 1000);
-  
+
   const intervals = {
     year: 31536000,
     month: 2592000,
@@ -160,14 +156,14 @@ function timeAgo(dateStr) {
     hour: 3600,
     minute: 60
   };
-  
+
   for (const [unit, secondsInUnit] of Object.entries(intervals)) {
     const interval = Math.floor(seconds / secondsInUnit);
     if (interval >= 1) {
       return `${interval} ${unit}${interval > 1 ? 's' : ''} ago`;
     }
   }
-  
+
   return 'just now';
 }
 
@@ -195,14 +191,14 @@ function requireAuth() {
 function showToast(message, type = 'info') {
   // Remove existing toasts
   document.querySelectorAll('.toast').forEach(t => t.remove());
-  
+
   const toast = document.createElement('div');
   toast.className = `toast toast-${type}`;
   toast.innerHTML = `
     <span class="toast-icon">${type === 'success' ? '✅' : type === 'error' ? '❌' : 'ℹ️'}</span>
     <span class="toast-message">${message}</span>
   `;
-  
+
   // Add styles if not present
   if (!document.getElementById('toast-styles')) {
     const styles = document.createElement('style');
@@ -233,9 +229,9 @@ function showToast(message, type = 'info') {
     `;
     document.head.appendChild(styles);
   }
-  
+
   document.body.appendChild(toast);
-  
+
   setTimeout(() => {
     toast.style.animation = 'slideIn 0.3s ease reverse';
     setTimeout(() => toast.remove(), 300);

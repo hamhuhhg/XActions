@@ -109,9 +109,8 @@ app.use('/api/auth/register', authLimiter);
 app.use(morgan('combined'));
 
 // Body parsing
-app.use(express.json({ limit: '10kb' })); // Prevent large payload attacks
-app.use(express.urlencoded({ extended: true, limit: '10kb' }));
-
+app.use(express.json({ limit: '50mb' })); // Allow up to 50MB for base64 image uploads
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 // AI Agent Detection - adds req.isAI and req.agentType
 app.use(aiDetectorMiddleware);
 

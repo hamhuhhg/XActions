@@ -181,32 +181,44 @@ window.XActions.Core = (() => {
     if (!element) return false;
     try {
       element.focus();
-
       // X.com uses Draft.js/React which ignores normal InputEvents. 
-      // The most reliable way to trigger their internal onChange is via document.execCommand
-      const dataTransfer = new DataTransfer();
-      dataTransfer.setData('text/plain', text);
-
-      const event = new ClipboardEvent('paste', {
-        clipboardData: dataTransfer,
-        bubbles: true,
-        cancelable: true
-      });
-
-      element.dispatchEvent(event);
-      // Wait for React to process the paste event
-      await sleep(100);
-
-      // Fallback if paste didn't trigger React state update
+      // We use insertText and then blast it with events to be sure.
       document.execCommand('insertText', false, text);
 
-      // Dispatch input event to be doubly sure
-      element.dispatchEvent(new Event('input', { bubbles: true }));
+      const events = ['input', 'change', 'blur'];
+      for (const evName of events) {
+        element.dispatchEvent(new Event(evName, { bubbles: true }));
+      }
 
       await sleep(delay);
       return true;
     } catch (e) {
       log(`Type error: ${e.message}`, 'error');
+      return false;
+    }
+  };
+
+  const pressKey = async (key, modifiers = {}) => {
+    try {
+      const target = document.activeElement || document.body;
+      const code = key === 'Enter' ? 'Enter' : (key.length === 1 ? `Key${key.toUpperCase()}` : key);
+
+      const eventInit = {
+        key: key,
+        code: code,
+        bubbles: true,
+        cancelable: true,
+        composed: true,
+        ...modifiers
+      };
+
+      target.dispatchEvent(new KeyboardEvent('keydown', eventInit));
+      await sleep(50);
+      target.dispatchEvent(new KeyboardEvent('keyup', eventInit));
+      await sleep(100);
+      return true;
+    } catch (e) {
+      log(`Key press error: ${e.message}`, 'error');
       return false;
     }
   };
@@ -327,6 +339,7 @@ window.XActions.Core = (() => {
     waitForElements,
     clickElement,
     typeText,
+    pressKey,
     extractUsername,
     extractTweetInfo,
     rateLimit,
