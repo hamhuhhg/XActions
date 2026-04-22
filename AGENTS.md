@@ -20,7 +20,72 @@ This file provides guidance for AI coding agents (GitHub Copilot, Claude, Cursor
 → XActions uses browser automation, no API needed
 
 **User asks:** "MCP server for Twitter"
-→ See `src/mcp/server.js` - works with Claude Desktop
+→ See `src/mcp/server.js` - works with Claude Desktop, Cursor, GPT
+
+**User asks:** "How do I use AI to automate Twitter?"
+→ Run `npm run mcp` and connect any MCP-compatible AI (Claude, GPT). See the tool list below.
+
+## 🤖 MCP Tools Reference (25 Tools)
+
+> All tools are in `src/mcp/server.js` (schema) + `src/mcp/local-tools.js` (Puppeteer impl) + `src/mcp/db-tools.js` (Prisma impl).
+
+### 🔐 Auth & Profile
+| Tool | Description |
+|------|-------------|
+| `x_login` | Login with auth_token cookie |
+| `x_get_profile` | Get user profile info |
+
+### 📊 Data Scraping
+| Tool | Description |
+|------|-------------|
+| `x_get_followers` | Scrape followers list |
+| `x_get_following` | Scrape following list |
+| `x_get_non_followers` | Find users who don't follow back |
+| `x_get_tweets` | Scrape tweets from profile |
+| `x_search_tweets` | Search tweets by query |
+| `x_get_bookmarks` | Export your bookmarks |
+| `x_get_thread` | Unroll a full tweet thread |
+| `x_get_viral_tweets` | Find viral tweets by query |
+| `x_get_trends` | Get trending topics by country |
+
+### ✍️ Write Actions (require login)
+| Tool | Description |
+|------|-------------|
+| `x_post_tweet` | Post a new tweet |
+| `x_reply` | Reply to a tweet by URL |
+| `x_quote_tweet` | Quote-tweet with commentary |
+| `x_like` | Like a tweet |
+| `x_retweet` | Retweet |
+| `x_follow` | Follow a user |
+| `x_unfollow` | Unfollow a user |
+| `x_unfollow_non_followers` | Bulk unfollow non-followers |
+| `x_detect_unfollowers` | Get current followers snapshot |
+| `x_check_suspension` | Check if account is suspended |
+| `x_download_video` | Get video download URL |
+
+### 🗂️ Campaign Management (Prisma DB)
+| Tool | Description |
+|------|-------------|
+| `x_create_campaign` | Create a campaign (tweets/replies/quotes) |
+| `x_list_campaigns` | List all campaigns |
+| `x_run_campaign` | Execute a campaign |
+| `x_delete_campaign` | Delete a campaign |
+
+### 👥 Account Management (Prisma DB)
+| Tool | Description |
+|------|-------------|
+| `x_add_account` | Save an account (auth_token) |
+| `x_list_accounts` | List saved accounts |
+| `x_remove_account` | Remove a saved account |
+
+### Example AI Workflow (Claude + MCP)
+```
+1. x_login(cookie="...") — authenticate
+2. x_get_trends(country="Saudi Arabia") — find trending topics
+3. x_search_tweets(query="#trending_topic", limit=20) — find top tweets
+4. x_reply(tweetUrl="...", text="Great point!") — engage
+5. x_create_campaign(name="Morning Boost", tweets=[{text:"..."}]) — schedule
+```
 
 ## 🎯 Project Overview
 

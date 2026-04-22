@@ -89,7 +89,7 @@ export async function x_get_profile({ username }) {
     const locationEl = document.querySelector('[data-testid="UserLocation"]');
     const websiteEl = document.querySelector('[data-testid="UserUrl"] a');
     const joinedEl = document.querySelector('[data-testid="UserJoinDate"]');
-    
+
     const followingEl = document.querySelector('a[href$="/following"] span');
     const followersEl = document.querySelector('a[href$="/verified_followers"] span, a[href$="/followers"] span');
 
@@ -134,7 +134,7 @@ export async function x_get_followers({ username, limit = 100 }) {
 
     const prevSize = followers.size;
     users.forEach((u) => followers.add(JSON.stringify(u)));
-    
+
     if (followers.size === prevSize) retries++;
     else retries = 0;
 
@@ -173,7 +173,7 @@ export async function x_get_following({ username, limit = 100 }) {
 
     const prevSize = following.size;
     users.forEach((u) => following.add(JSON.stringify(u)));
-    
+
     if (following.size === prevSize) retries++;
     else retries = 0;
 
@@ -218,7 +218,7 @@ export async function x_get_tweets({ username, limit = 50 }) {
         const retweetsEl = article.querySelector('[data-testid="retweet"] span');
         const repliesEl = article.querySelector('[data-testid="reply"] span');
         const linkEl = article.querySelector('a[href*="/status/"]');
-        
+
         return {
           text: textEl?.textContent || null,
           timestamp: timeEl?.getAttribute('datetime') || null,
@@ -232,7 +232,7 @@ export async function x_get_tweets({ username, limit = 50 }) {
 
     const prevSize = tweets.size;
     tweetData.forEach((t) => tweets.add(JSON.stringify(t)));
-    
+
     if (tweets.size === prevSize) retries++;
     else retries = 0;
 
@@ -265,7 +265,7 @@ export async function x_search_tweets({ query, limit = 50 }) {
         const authorEl = article.querySelector('[data-testid="User-Name"] a');
         const timeEl = article.querySelector('time');
         const linkEl = article.querySelector('a[href*="/status/"]');
-        
+
         return {
           text: textEl?.textContent || null,
           author: authorEl?.href?.split('/')[3] || null,
@@ -277,7 +277,7 @@ export async function x_search_tweets({ query, limit = 50 }) {
 
     const prevSize = tweets.size;
     tweetData.forEach((t) => tweets.add(JSON.stringify(t)));
-    
+
     if (tweets.size === prevSize) retries++;
     else retries = 0;
 
@@ -302,7 +302,7 @@ export async function x_follow({ username }) {
     await randomDelay();
     return { success: true, message: `Followed @${username}` };
   }
-  
+
   return { success: false, message: `Could not follow @${username}` };
 }
 
@@ -319,7 +319,7 @@ export async function x_unfollow({ username }) {
   if (followingBtn) {
     await followingBtn.click();
     await sleep(500);
-    
+
     // Confirm unfollow
     const confirmBtn = await page.$('[data-testid="confirmationSheetConfirm"]');
     if (confirmBtn) {
@@ -328,7 +328,7 @@ export async function x_unfollow({ username }) {
       return { success: true, message: `Unfollowed @${username}` };
     }
   }
-  
+
   return { success: false, message: `Could not unfollow @${username}` };
 }
 
@@ -345,7 +345,7 @@ export async function x_post_tweet({ text }) {
   if (textbox) {
     await textbox.type(text, { delay: 50 });
     await sleep(500);
-    
+
     // Click post
     const postBtn = await page.$('[data-testid="tweetButton"]');
     if (postBtn) {
@@ -354,7 +354,7 @@ export async function x_post_tweet({ text }) {
       return { success: true, message: 'Tweet posted successfully' };
     }
   }
-  
+
   return { success: false, message: 'Could not post tweet' };
 }
 
@@ -372,7 +372,7 @@ export async function x_like({ url }) {
     await randomDelay();
     return { success: true, message: 'Tweet liked' };
   }
-  
+
   return { success: false, message: 'Could not like tweet' };
 }
 
@@ -388,7 +388,7 @@ export async function x_retweet({ url }) {
   if (rtBtn) {
     await rtBtn.click();
     await sleep(500);
-    
+
     const confirmRt = await page.$('[data-testid="retweetConfirm"]');
     if (confirmRt) {
       await confirmRt.click();
@@ -396,7 +396,7 @@ export async function x_retweet({ url }) {
       return { success: true, message: 'Retweeted' };
     }
   }
-  
+
   return { success: false, message: 'Could not retweet' };
 }
 
@@ -406,7 +406,7 @@ export async function x_retweet({ url }) {
 export async function x_unfollow_non_followers({ username, maxUnfollows = 100, dryRun = false }) {
   const nonFollowersResult = await x_get_non_followers({ username });
   const toUnfollow = nonFollowersResult.nonFollowers.slice(0, maxUnfollows);
-  
+
   if (dryRun) {
     return {
       dryRun: true,
@@ -414,14 +414,14 @@ export async function x_unfollow_non_followers({ username, maxUnfollows = 100, d
       count: toUnfollow.length,
     };
   }
-  
+
   const results = [];
   for (const user of toUnfollow) {
     const result = await x_unfollow({ username: user });
     results.push({ username: user, ...result });
     await sleep(2000); // Rate limiting
   }
-  
+
   return {
     unfollowed: results.filter(r => r.success).map(r => r.username),
     failed: results.filter(r => !r.success).map(r => r.username),
@@ -436,7 +436,7 @@ export async function x_detect_unfollowers({ username }) {
   const STORAGE_KEY = `xactions_mcp_followers_${username}`;
   const followers = await x_get_followers({ username, limit: 1000 });
   const currentFollowers = followers.map(f => f.username);
-  
+
   // In MCP context, we'd need to persist this somehow
   // For now, return current state and let AI manage comparison
   return {
@@ -446,6 +446,128 @@ export async function x_detect_unfollowers({ username }) {
     timestamp: new Date().toISOString(),
     note: 'Compare with previous snapshot to detect unfollowers',
   };
+}
+
+/**
+ * Reply to a tweet by its URL
+ */
+export async function x_reply({ tweetUrl, text }) {
+  const { page } = await initBrowser();
+  await page.goto(tweetUrl, { waitUntil: 'networkidle2' });
+  await randomDelay();
+
+  // Click the Reply button on the focused tweet
+  const replyBtn = await page.$('article[data-testid="tweet"] [data-testid="reply"]');
+  if (replyBtn) {
+    await replyBtn.click();
+    await sleep(1000);
+
+    // Type reply text in the opened composer
+    const textbox = await page.$('[data-testid="tweetTextarea_0"]');
+    if (textbox) {
+      await textbox.type(text, { delay: 40 });
+      await sleep(500);
+
+      const postBtn = await page.$('[data-testid="tweetButton"]');
+      if (postBtn) {
+        await postBtn.click();
+        await randomDelay();
+        return { success: true, message: `Replied to tweet: ${tweetUrl}` };
+      }
+    }
+  }
+  return { success: false, message: 'Could not find reply button or composer' };
+}
+
+/**
+ * Quote-tweet a tweet by its URL
+ */
+export async function x_quote_tweet({ tweetUrl, text }) {
+  const { page } = await initBrowser();
+  await page.goto('https://x.com/compose/tweet', { waitUntil: 'networkidle2' });
+  await randomDelay();
+
+  // Type the quote text
+  const textbox = await page.$('[data-testid="tweetTextarea_0"]');
+  if (textbox) {
+    // Append the tweet URL so X converts it to a quote
+    const fullText = `${text} ${tweetUrl}`;
+    await textbox.type(fullText, { delay: 40 });
+    await sleep(500);
+
+    const postBtn = await page.$('[data-testid="tweetButton"]');
+    if (postBtn) {
+      await postBtn.click();
+      await randomDelay();
+      return { success: true, message: `Quote-tweeted: ${tweetUrl}` };
+    }
+  }
+  return { success: false, message: 'Could not compose quote tweet' };
+}
+
+/**
+ * Get trending topics for a country using trend_extractor.py
+ */
+export async function x_get_trends({ country = 'worldwide', limit = 10 }) {
+  const { spawn } = await import('child_process');
+  const { fileURLToPath } = await import('url');
+  const pathMod = await import('path');
+  const __filename = fileURLToPath(import.meta.url);
+  const __dirname = pathMod.default.dirname(__filename);
+  const scriptPath = pathMod.default.join(__dirname, '../../scripts/trend_extractor.py');
+
+  return new Promise((resolve) => {
+    const proc = spawn('python', [
+      scriptPath, '--action', 'trends', '--country', country
+    ]);
+    let out = '';
+    let err = '';
+    proc.stdout.on('data', (d) => { out += d.toString(); });
+    proc.stderr.on('data', (d) => { err += d.toString(); });
+    proc.on('close', () => {
+      try {
+        const match = out.match(/\{[\s\S]*\}/);
+        if (match) {
+          const data = JSON.parse(match[0]);
+          const trends = (data.trends || []).slice(0, limit);
+          resolve({ success: true, country, trends, count: trends.length });
+        } else {
+          resolve({ success: false, error: 'No trend data returned', stderr: err });
+        }
+      } catch (e) {
+        resolve({ success: false, error: 'Failed to parse trend output: ' + e.message });
+      }
+    });
+  });
+}
+
+/**
+ * Check if an X/Twitter account is suspended
+ */
+export async function x_check_suspension({ username }) {
+  const { page } = await initBrowser();
+  await page.goto(`https://x.com/${username}`, { waitUntil: 'networkidle2' });
+  await randomDelay();
+
+  const result = await page.evaluate(() => {
+    const bodyText = document.body?.innerText || '';
+    const isSuspended =
+      bodyText.includes('Account suspended') ||
+      bodyText.includes('has been suspended') ||
+      !!document.querySelector('[data-testid="empty_state_header_text"]');
+    const notFound =
+      bodyText.includes('This account doesn') ||
+      bodyText.includes('doesn\'t exist');
+    return { isSuspended, notFound };
+  });
+
+  if (result.notFound) {
+    return { username, status: 'not_found', suspended: false };
+  }
+  if (result.isSuspended) {
+    return { username, status: 'suspended', suspended: true };
+  }
+  return { username, status: 'active', suspended: false };
 }
 
 /**
@@ -504,8 +626,153 @@ export async function x_download_video({ tweetUrl }) {
   };
 }
 
+/**
+ * Scrape bookmarks from the authenticated user's bookmarks page
+ */
+export async function x_get_bookmarks({ limit = 100 }) {
+  const { page } = await initBrowser();
+  await page.goto('https://x.com/i/bookmarks', { waitUntil: 'networkidle2' });
+  await randomDelay();
+
+  const bookmarks = new Map();
+  let retries = 0;
+
+  while (bookmarks.size < limit && retries < 8) {
+    const items = await page.evaluate(() => {
+      const articles = document.querySelectorAll('article[data-testid="tweet"]');
+      return Array.from(articles).map(article => {
+        const text = article.querySelector('[data-testid="tweetText"]')?.textContent || null;
+        const userName = article.querySelector('[data-testid="User-Name"]')?.textContent || '';
+        const handle = userName.match(/@(\w+)/)?.[1] || null;
+        const timeLink = article.querySelector('time')?.closest('a');
+        const url = timeLink?.href || null;
+        const tweetId = url?.split('/status/')[1]?.split('?')[0] || null;
+        const time = article.querySelector('time')?.getAttribute('datetime') || null;
+        const likesEl = article.querySelector('[data-testid="like"] span');
+        const retweetsEl = article.querySelector('[data-testid="retweet"] span');
+        return { tweetId, handle, text, url, time, likes: likesEl?.textContent || '0', retweets: retweetsEl?.textContent || '0' };
+      }).filter(b => b.tweetId && b.text);
+    });
+
+    const prevSize = bookmarks.size;
+    items.forEach(b => bookmarks.set(b.tweetId, b));
+
+    if (bookmarks.size === prevSize) retries++;
+    else retries = 0;
+
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    await randomDelay();
+  }
+
+  const result = Array.from(bookmarks.values()).slice(0, limit);
+  return { success: true, count: result.length, bookmarks: result };
+}
+
+/**
+ * Unroll / scrape a full tweet thread by its URL
+ */
+export async function x_get_thread({ tweetUrl }) {
+  const { page } = await initBrowser();
+  await page.goto(tweetUrl, { waitUntil: 'networkidle2' });
+  await randomDelay();
+
+  // Extract the thread author from the URL
+  const authorMatch = tweetUrl.match(/x\.com\/(\w+)\/status/);
+  const author = authorMatch ? authorMatch[1].toLowerCase() : null;
+
+  const tweets = new Map();
+  let retries = 0;
+
+  while (retries < 8) {
+    const items = await page.evaluate((authorFilter) => {
+      const articles = document.querySelectorAll('article[data-testid="tweet"]');
+      return Array.from(articles).map(article => {
+        const text = article.querySelector('[data-testid="tweetText"]')?.textContent || null;
+        const userName = article.querySelector('[data-testid="User-Name"]')?.textContent || '';
+        const handle = userName.match(/@(\w+)/)?.[1]?.toLowerCase() || null;
+        const timeLink = article.querySelector('time')?.closest('a');
+        const url = timeLink?.href || null;
+        const time = article.querySelector('time')?.getAttribute('datetime') || null;
+        return { handle, text, url, time };
+      }).filter(t => t.text && t.url && (!authorFilter || t.handle === authorFilter));
+    }, author);
+
+    const prevSize = tweets.size;
+    items.forEach(t => tweets.set(t.url, t));
+
+    if (tweets.size === prevSize) retries++;
+    else retries = 0;
+
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    await sleep(1200);
+  }
+
+  const thread = Array.from(tweets.values()).sort((a, b) => new Date(a.time) - new Date(b.time));
+  return { success: true, author, count: thread.length, thread };
+}
+
+/**
+ * Find viral/high-engagement tweets from a search query or profile
+ */
+export async function x_get_viral_tweets({ query, minLikes = 100, limit = 50, sortBy = 'likes' }) {
+  const { page } = await initBrowser();
+  const encodedQuery = encodeURIComponent(query);
+  await page.goto(`https://x.com/search?q=${encodedQuery}&src=typed_query&f=top`, { waitUntil: 'networkidle2' });
+  await randomDelay();
+
+  const tweets = new Map();
+  let retries = 0;
+
+  while (tweets.size < limit && retries < 8) {
+    const items = await page.evaluate((minL) => {
+      const parseNum = (str) => {
+        if (!str) return 0;
+        const num = parseFloat(str.replace(/,/g, ''));
+        if (str.includes('K')) return num * 1000;
+        if (str.includes('M')) return num * 1000000;
+        return num;
+      };
+      const articles = document.querySelectorAll('article[data-testid="tweet"]');
+      return Array.from(articles).map(article => {
+        const text = article.querySelector('[data-testid="tweetText"]')?.textContent || null;
+        const userName = article.querySelector('[data-testid="User-Name"]')?.textContent || '';
+        const handle = userName.match(/@(\w+)/)?.[1] || null;
+        const timeLink = article.querySelector('time')?.closest('a');
+        const url = timeLink?.href || null;
+        const tweetId = url?.split('/status/')[1]?.split('?')[0] || null;
+        const buttons = article.querySelectorAll('[role="group"] button');
+        let likes = 0, retweets = 0, replies = 0;
+        buttons.forEach(btn => {
+          const label = btn.getAttribute('aria-label') || '';
+          const num = parseNum(label.match(/[\d,.]+[KM]?/)?.[0] || '0');
+          if (label.includes('like')) likes = num;
+          else if (label.includes('repost') || label.includes('Retweet')) retweets = num;
+          else if (label.includes('repl')) replies = num;
+        });
+        return { tweetId, handle, text, url, likes, retweets, replies, engagement: likes + retweets + replies };
+      }).filter(t => t.tweetId && t.text && t.likes >= minL);
+    }, minLikes);
+
+    const prevSize = tweets.size;
+    items.forEach(t => tweets.set(t.tweetId, t));
+
+    if (tweets.size === prevSize) retries++;
+    else retries = 0;
+
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    await randomDelay();
+  }
+
+  const sorted = Array.from(tweets.values())
+    .sort((a, b) => (b[sortBy] || 0) - (a[sortBy] || 0))
+    .slice(0, limit);
+
+  return { success: true, query, count: sorted.length, tweets: sorted };
+}
+
 // Export all tools as a map for dynamic lookup
 export const toolMap = {
+  // Core auth & read
   x_login,
   x_get_profile,
   x_get_followers,
@@ -513,14 +780,27 @@ export const toolMap = {
   x_get_non_followers,
   x_get_tweets,
   x_search_tweets,
+  // Write actions
   x_follow,
   x_unfollow,
   x_post_tweet,
   x_like,
   x_retweet,
+  x_reply,
+  x_quote_tweet,
+  // Bulk actions
   x_unfollow_non_followers,
   x_detect_unfollowers,
+  // Discovery
+  x_get_trends,
+  x_check_suspension,
+  // Advanced scrapers
+  x_get_bookmarks,
+  x_get_thread,
+  x_get_viral_tweets,
+  // Media
   x_download_video,
 };
 
 export default toolMap;
+

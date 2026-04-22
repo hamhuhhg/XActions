@@ -1,244 +1,564 @@
-/**
- * XActions Dashboard Configuration
- * 
- * This file provides API configuration for all dashboard pages.
- * Include this file in any page that makes API calls.
- */
+// js/config.js
+    // Static regions list from getdaytrends
+    const staticCountries = [
+      { name: "Worldwide", slug: "worldwide" },
+      { name: "Algeria", slug: "algeria" },
+      { name: "Argentina", slug: "argentina" },
+      { name: "Australia", slug: "australia" },
+      { name: "Austria", slug: "austria" },
+      { name: "Bahrain", slug: "bahrain" },
+      { name: "Belarus", slug: "belarus" },
+      { name: "Belgium", slug: "belgium" },
+      { name: "Brazil", slug: "brazil" },
+      { name: "Canada", slug: "canada" },
+      { name: "Chile", slug: "chile" },
+      { name: "Colombia", slug: "colombia" },
+      { name: "Denmark", slug: "denmark" },
+      { name: "Dominican Republic", slug: "dominican-republic" },
+      { name: "Ecuador", slug: "ecuador" },
+      { name: "Egypt", slug: "egypt" },
+      { name: "France", slug: "france" },
+      { name: "Germany", slug: "germany" },
+      { name: "Ghana", slug: "ghana" },
+      { name: "Greece", slug: "greece" },
+      { name: "Guatemala", slug: "guatemala" },
+      { name: "India", slug: "india" },
+      { name: "Indonesia", slug: "indonesia" },
+      { name: "Ireland", slug: "ireland" },
+      { name: "Israel", slug: "israel" },
+      { name: "Italy", slug: "italy" },
+      { name: "Japan", slug: "japan" },
+      { name: "Jordan", slug: "jordan" },
+      { name: "Kenya", slug: "kenya" },
+      { name: "Korea", slug: "korea" },
+      { name: "Kuwait", slug: "kuwait" },
+      { name: "Latvia", slug: "latvia" },
+      { name: "Lebanon", slug: "lebanon" },
+      { name: "Malaysia", slug: "malaysia" },
+      { name: "Mexico", slug: "mexico" },
+      { name: "Netherlands", slug: "netherlands" },
+      { name: "New Zealand", slug: "new-zealand" },
+      { name: "Nigeria", slug: "nigeria" },
+      { name: "Norway", slug: "norway" },
+      { name: "Oman", slug: "oman" },
+      { name: "Pakistan", slug: "pakistan" },
+      { name: "Panama", slug: "panama" },
+      { name: "Peru", slug: "peru" },
+      { name: "Philippines", slug: "philippines" },
+      { name: "Poland", slug: "poland" },
+      { name: "Portugal", slug: "portugal" },
+      { name: "Puerto Rico", slug: "puerto-rico" },
+      { name: "Qatar", slug: "qatar" },
+      { name: "Russia", slug: "russia" },
+      { name: "Saudi Arabia", slug: "saudi-arabia" },
+      { name: "Singapore", slug: "singapore" },
+      { name: "South Africa", slug: "south-africa" },
+      { name: "Spain", slug: "spain" },
+      { name: "Sweden", slug: "sweden" },
+      { name: "Switzerland", slug: "switzerland" },
+      { name: "Thailand", slug: "thailand" },
+      { name: "Turkey", slug: "turkey" },
+      { name: "Ukraine", slug: "ukraine" },
+      { name: "United Arab Emirates", slug: "united-arab-emirates" },
+      { name: "United Kingdom", slug: "united-kingdom" },
+      { name: "United States", slug: "united-states" },
+      { name: "Venezuela", slug: "venezuela" },
+      { name: "Vietnam", slug: "vietnam" }
+    ];
+    window.trendCountries = staticCountries;
 
-const CONFIG = {
-  // API Base URL - use relative path to adapt to any backend PORT
-  API_BASE: '/api',
-
-  // WebSocket URL for real-time updates
-  WS_URL: window.location.origin,
-
-  // Railway API URL (if needed for cross-origin)
-  RAILWAY_URL: 'https://xactions-api.up.railway.app',
-
-  // App version
-  VERSION: '1.0.0',
-
-  // Default rate limiting delays (ms)
-  DELAYS: {
-    MIN: 1500,
-    MAX: 3000,
-    BETWEEN_REQUESTS: 2000
-  },
-
-  // Pagination defaults
-  PAGINATION: {
-    DEFAULT_LIMIT: 100,
-    MAX_LIMIT: 1000
-  }
-};
-
-/**
- * Make an authenticated API request
- * @param {string} endpoint - API endpoint (e.g., '/user/profile')
- * @param {object} options - Fetch options
- * @returns {Promise<object>} - Response data
- */
-async function apiRequest(endpoint, options = {}) {
-  const authToken = localStorage.getItem('authToken');
-
-  const defaultOptions = {
-    headers: {
-      'Content-Type': 'application/json',
-      ...(authToken && { 'Authorization': `Bearer ${authToken}` })
-    }
-  };
-
-  const mergedOptions = {
-    ...defaultOptions,
-    ...options,
-    headers: {
-      ...defaultOptions.headers,
-      ...(options.headers || {})
-    }
-  };
-
-  const url = endpoint.startsWith('http')
-    ? endpoint
-    : `${CONFIG.API_BASE}${endpoint}`;
-
-  const response = await fetch(url, mergedOptions);
-  const data = await response.json();
-
-  if (!response.ok) {
-    throw new Error(data.error || data.message || 'Request failed');
-  }
-
-  return data;
-}
-
-/**
- * Make an AI API request (for server-side automation)
- * @param {string} endpoint - AI API endpoint
- * @param {object} body - Request body
- * @returns {Promise<object>} - Response data
- */
-async function aiApiRequest(endpoint, body = {}) {
-  return apiRequest(`/ai${endpoint}`, {
-    method: 'POST',
-    body: JSON.stringify(body)
-  });
-}
-
-/**
- * Poll operation status
- * @param {string} operationId - The operation ID to poll
- * @param {function} onProgress - Callback for progress updates
- * @param {function} onComplete - Callback when complete
- * @param {function} onError - Callback on error
- */
-async function pollOperationStatus(operationId, onProgress, onComplete, onError) {
-  const poll = async () => {
-    try {
-      const data = await apiRequest(`/ai/action/status/${operationId}`);
-
-      if (onProgress && data.progress) {
-        onProgress(data.progress);
+    const tools = {
+      // --- SCRAPERS ---
+      'profile': {
+        id: 'profile',
+        type: 'scraper',
+        title: 'مستخرج الملف الشخصي',
+        desc: 'الحصول على معلومات شاملة لملف شخصي محدد على X/Twitter.',
+        icon: 'fa-regular fa-id-card',
+        color: 'text-blue-400',
+        endpoint: '/api/new_api/profile',
+        method: 'GET',
+        inputs: [
+          { id: 'username', label: 'اسم المستخدم المستهدف (بدون @)', type: 'text', placeholder: 'elonmusk', prepend: '@', required: true }
+        ]
+      },
+      'followers': {
+        id: 'followers',
+        type: 'scraper',
+        title: 'مستخرج المتابعين',
+        desc: 'استخراج قائمة المستخدمين الذين يتابعون حساباً محدداً.',
+        icon: 'fa-solid fa-users',
+        color: 'text-indigo-400',
+        endpoint: '/api/new_api/followers',
+        method: 'GET',
+        inputs: [
+          { id: 'username', label: 'اسم المستخدم المستهدف', type: 'text', placeholder: 'elonmusk', prepend: '@', required: true },
+          { id: 'limit', label: 'الحد الأقصى للنتائج', type: 'number', placeholder: '100', defaultValue: 100 }
+        ]
+      },
+      'tweets': {
+        id: 'tweets',
+        type: 'scraper',
+        title: 'محمل التغريدات',
+        desc: 'استخراج التغريدات الأخيرة من يوميات ملف شخصي محدد.',
+        icon: 'fa-regular fa-comment-dots',
+        color: 'text-sky-400',
+        endpoint: '/api/new_api/tweets',
+        method: 'GET',
+        inputs: [
+          { id: 'username', label: 'اسم المستخدم المستهدف', type: 'text', placeholder: 'SpaceX', prepend: '@', required: true },
+          { id: 'limit', label: 'أقصى عدد للتغريدات', type: 'number', placeholder: '50', defaultValue: 50 },
+          { id: 'includeReplies', label: 'تضمين الردود في الاستخراج؟', type: 'checkbox', defaultValue: false }
+        ]
+      },
+      'search': {
+        id: 'search',
+        type: 'scraper',
+        title: 'استعلام البحث',
+        desc: 'إجراء بحث متقدم في تويتر واستخراج النتائج.',
+        icon: 'fa-solid fa-magnifying-glass',
+        color: 'text-teal-400',
+        endpoint: '/api/new_api/search',
+        method: 'GET',
+        inputs: [
+          { id: 'query', label: 'كلمة البحث أو استعلام متقدم', type: 'text', placeholder: 'AI agents min_faves:1000', icon: 'fa-solid fa-search', required: true },
+          { id: 'limit', label: 'الحد الأقصى للنتائج', type: 'number', placeholder: '50', defaultValue: 50 },
+          { id: 'filter', label: 'نوع التصفية', type: 'select', options: ['latest', 'top', 'people', 'photos', 'videos'], defaultValue: 'latest' }
+        ]
+      },
+      'hashtag': {
+        id: 'hashtag',
+        type: 'scraper',
+        title: 'مستخرج الهاشتاجات',
+        desc: 'استخراج أفضل التغريدات الحديثة لهاشتاج محدد.',
+        icon: 'fa-solid fa-hashtag',
+        color: 'text-purple-400',
+        endpoint: '/api/new_api/hashtag',
+        method: 'GET',
+        inputs: [
+          { id: 'tag', label: 'الهاشتاج (بدون #)', type: 'text', placeholder: 'technology', prepend: '#', required: true },
+          { id: 'limit', label: 'الحد الأقصى للنتائج', type: 'number', placeholder: '50', defaultValue: 50 },
+          { id: 'filter', label: 'ترتيب الفرز', type: 'select', options: ['latest', 'top'], defaultValue: 'latest' }
+        ]
+      },
+      'thread': {
+        id: 'thread',
+        type: 'scraper',
+        title: 'مستخرج السلاسل',
+        desc: 'تحميل سلسلة تغريدات كاملة من رابط تغريدة واحدة.',
+        icon: 'fa-solid fa-bars-staggered',
+        color: 'text-amber-400',
+        endpoint: '/api/new_api/thread',
+        method: 'GET',
+        inputs: [
+          { id: 'url', label: 'رابط التغريدة', type: 'text', placeholder: 'https://x.com/username/status/12345...', required: true }
+        ]
+      },
+      'media': {
+        id: 'media',
+        type: 'scraper',
+        title: 'مستخرج الوسائط',
+        desc: 'استخراج الصور والفيديوهات من ملف مستخدم.',
+        icon: 'fa-regular fa-image',
+        color: 'text-pink-400',
+        endpoint: '/api/new_api/media',
+        method: 'GET',
+        inputs: [
+          { id: 'username', label: 'اسم المستخدم المستهدف', type: 'text', placeholder: 'SpaceX', prepend: '@', required: true },
+          { id: 'limit', label: 'الحد الأقصى للوسائط', type: 'number', placeholder: '50', defaultValue: 50 }
+        ]
+      },
+      'trendExtractor': {
+        id: 'trendExtractor',
+        type: 'scraper',
+        title: 'مستخرج الترند',
+        desc: 'استخراج الهاشتاجات والكلمات المفتاحية النشطة حالياً في تويتر بفرز حسب الدولة.',
+        icon: 'fa-solid fa-fire-flame-curved',
+        color: 'text-orange-500',
+        isSpecialized: true // Needs custom UI rendering
+      },
+      // --- AUTOMATION (Bots) ---
+      'autoPoster': {
+        id: 'autoPoster',
+        type: 'action',
+        title: 'الناشر التلقائي (فردي/جماعي)',
+        desc: 'نشر التغريدات تلقائياً. افصل بين عدة تغريدات بـ --- للنشر الجماعي.',
+        icon: 'fa-solid fa-paper-plane',
+        color: 'text-indigo-400',
+        endpoint: '/api/new_api/run',
+        method: 'POST',
+        requiresAuth: true,
+        scriptName: 'autoPoster',
+        inputs: [
+          { id: 'tweets', label: 'محتوى التغريدة (أضف مربعات للنشر الجماعي)', type: 'textarea-list', required: true }
+        ]
+      },
+      'autoLike': {
+        id: 'autoLike',
+        type: 'action',
+        title: 'بوت الإعجاب التلقائي',
+        desc: 'الإعجاب التلقائي بالتغريدات بناءً على كلمات مفتاحية معينة أو من مستخدم مستهدف لبناء التفاعل.',
+        icon: 'fa-solid fa-heart',
+        color: 'text-rose-400',
+        endpoint: '/api/new_api/run',
+        method: 'POST',
+        requiresAuth: true,
+        scriptName: 'autoLike',
+        inputs: [
+          { id: 'target_type', label: 'نوع الاستهداف', type: 'select', options: ['keyword', 'user_timeline'], defaultValue: 'keyword' },
+          { id: 'target_value', label: 'قيمة الاستهداف (كلمة مفتاحية أو اسم مستخدم)', type: 'text', placeholder: 'ChatGPT', required: true },
+          { id: 'limit', label: 'أقصى عدد للإعجابات في كل تشغيل', type: 'number', placeholder: '10', defaultValue: 10 }
+        ]
+      },
+      'smartUnfollow': {
+        id: 'smartUnfollow',
+        type: 'action',
+        title: 'إلغاء المتابعة الجماعي الذكي',
+        desc: 'إزالة المتابعة تلقائياً للمستخدمين الذين لا يتابعونك، مع الاحتفاظ بالمتابعين المتبادلين بأمان.',
+        icon: 'fa-solid fa-user-minus',
+        color: 'text-orange-400',
+        endpoint: '/api/new_api/run',
+        method: 'POST',
+        requiresAuth: true,
+        scriptName: 'unfollowNonFollowers',
+        inputs: [
+          { id: 'limit', label: 'أقصى عدد للإلغاء المتابعة', type: 'number', placeholder: '50', defaultValue: 50 }
+        ]
+      },
+      'autoRetweet': {
+        id: 'autoRetweet',
+        type: 'action',
+        title: 'بوت إعادة التغريد التلقائي',
+        desc: 'إعادة التغريد تلقائياً من مستخدم أو بناءً على كلمة مفتاحية.',
+        icon: 'fa-solid fa-retweet',
+        color: 'text-green-400',
+        endpoint: '/api/new_api/run',
+        method: 'POST',
+        requiresAuth: true,
+        scriptName: 'autoRetweet',
+        inputs: [
+          { id: 'target_type', label: 'نوع الاستهداف', type: 'select', options: ['keyword', 'user_timeline'], defaultValue: 'keyword' },
+          { id: 'target_value', label: 'قيمة الاستهداف (كلمة مفتاحية أو اسم مستخدم)', type: 'text', placeholder: 'AI', required: true },
+          { id: 'limit', label: 'أقصى عدد لإعادة التغريد', type: 'number', placeholder: '10', defaultValue: 10 }
+        ]
+      },
+      'autoFollow': {
+        id: 'autoFollow',
+        type: 'action',
+        title: 'بوت المتابعة التلقائية',
+        desc: 'متابعة جماعية للمستخدمين الذين غردوا عن كلمة مفتاحية معينة.',
+        icon: 'fa-solid fa-user-plus',
+        color: 'text-emerald-400',
+        endpoint: '/api/new_api/run',
+        method: 'POST',
+        requiresAuth: true,
+        scriptName: 'autoFollow',
+        inputs: [
+          { id: 'keyword', label: 'الكلمة المفتاحية للبحث عن المستخدمين', type: 'text', placeholder: 'Web3', required: true },
+          { id: 'limit', label: 'أقصى عدد للمتابعات', type: 'number', placeholder: '20', defaultValue: 20 }
+        ]
+      },
+      'autoComment': {
+        id: 'autoComment',
+        type: 'action',
+        title: 'بوت الردود التلقائية',
+        desc: 'الرد التلقائي على التغريدات التي تطابق كلمة مفتاحية برسالة محددة مسبقاً.',
+        icon: 'fa-solid fa-reply',
+        color: 'text-violet-400',
+        endpoint: '/api/new_api/run',
+        method: 'POST',
+        requiresAuth: true,
+        scriptName: 'autoComment',
+        inputs: [
+          { id: 'target_type', label: 'نوع الاستهداف', type: 'select', options: ['keyword', 'user_timeline'], defaultValue: 'keyword' },
+          { id: 'target_value', label: 'الاستهداف للرد (كلمة أو مستخدم)', type: 'text', placeholder: 'AI', required: true },
+          { id: 'comment_text', label: 'رسالة الرد', type: 'text', placeholder: 'Great post!', required: true },
+          { id: 'limit', label: 'أقصى عدد للردود', type: 'number', placeholder: '5', defaultValue: 5 }
+        ]
+      },
+      'campaigns': {
+        id: 'campaigns',
+        type: 'action',
+        title: 'بوت الحملات (متقدم)',
+        desc: 'بناء حملات معقدة تتضمن تغريدات، ردود، اقتباسات، وجدولة زمنية عبر عدة حسابات دفعة واحدة.',
+        icon: 'fa-solid fa-bullhorn',
+        color: 'text-brand-400',
+        method: 'POST',
+        requiresAuth: true,
+        isSpecialized: true,
+        inputs: []
+      },
+      // --- FACEBOOK TOOLS ---
+      'fbProfile': {
+        id: 'fbProfile',
+        type: 'scraper',
+        title: 'فيس بوك - استخراج الملف الشخصي',
+        desc: 'الحصول على معلومات حول ملف شخصي على فيس بوك.',
+        icon: 'fa-brands fa-facebook',
+        color: 'text-blue-500',
+        endpoint: '/api/new_api/facebook/run',
+        method: 'POST',
+        requiresAuth: true,
+        scriptName: 'fb_get_profile',
+        platform: 'facebook',
+        inputs: [
+          { id: 'profileUrl', label: 'رابط الملف الشخصي المستهدف', type: 'text', placeholder: 'https://facebook.com/zuck', required: true }
+        ]
+      },
+      'fbGroup': {
+        id: 'fbGroup',
+        type: 'scraper',
+        title: 'فيس بوك - استخراج من مجموعة',
+        desc: 'الحصول على أحدث المنشورات من مجموعة فيس بوك محددة.',
+        icon: 'fa-solid fa-users-rectangle',
+        color: 'text-blue-500',
+        endpoint: '/api/new_api/facebook/run',
+        method: 'POST',
+        requiresAuth: true,
+        scriptName: 'fb_get_group_posts',
+        platform: 'facebook',
+        inputs: [
+          { id: 'groupUrl', label: 'رابط المجموعة المستهدفة', type: 'text', placeholder: 'https://facebook.com/groups/xxxxx', required: true },
+          { id: 'limit', label: 'أقصى عدد للمنشورات', type: 'number', placeholder: '10', defaultValue: 10 }
+        ]
+      },
+      'fbPost': {
+        id: 'fbPost',
+        type: 'action',
+        title: 'فيس بوك - نشر على اليوميات',
+        desc: 'نشر تحديث حالة أو نص على يومياتك في فيس بوك.',
+        icon: 'fa-regular fa-paper-plane',
+        color: 'text-blue-500',
+        endpoint: '/api/new_api/facebook/run',
+        method: 'POST',
+        requiresAuth: true,
+        scriptName: 'fb_post_timeline',
+        platform: 'facebook',
+        inputs: [
+          { id: 'text', label: 'محتوى المنشور', type: 'textarea', placeholder: 'Hello Facebook!', required: true }
+        ]
+      },
+      'fbReply': {
+        id: 'fbReply',
+        type: 'action',
+        title: 'فيس بوك - الرد على منشور',
+        desc: 'الرد بتعليق على منشور فيس بوك محدد.',
+        icon: 'fa-solid fa-reply',
+        color: 'text-blue-500',
+        endpoint: '/api/new_api/facebook/run',
+        method: 'POST',
+        requiresAuth: true,
+        scriptName: 'fb_reply_comment',
+        platform: 'facebook',
+        inputs: [
+          { id: 'postUrl', label: 'رابط المنشور', type: 'text', placeholder: 'https://facebook.com/zuck/posts/xxxxx', required: true },
+          { id: 'text', label: 'التعليق المكتوب', type: 'textarea', placeholder: 'Awesome post!', required: true }
+        ]
+      },
+      // --- AI ---
+      'aiChat': {
+        id: 'aiChat',
+        type: 'ai',
+        title: 'محادثة الذكاء الاصطناعي',
+        desc: 'تحدث مع الذكاء الاصطناعي لتنفيذ مهام X/Twitter تلقائياً. يدعم OpenAI وGroq وDeepSeek وOllama وأي API متوافق.',
+        icon: 'fa-solid fa-robot',
+        color: 'text-brand-400',
+        isSpecialized: true,
+        inputs: []
       }
+    };
 
-      if (data.status === 'completed') {
-        if (onComplete) onComplete(data);
-        return;
-      }
-
-      if (data.status === 'failed') {
-        if (onError) onError(data.error || 'Operation failed');
-        return;
-      }
-
-      // Continue polling
-      setTimeout(poll, 2000);
-    } catch (error) {
-      if (onError) onError(error.message);
-    }
-  };
-
-  poll();
-}
-
-/**
- * Format numbers for display (e.g., 1500 -> 1.5K)
- */
-function formatNumber(num) {
-  if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
-  if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
-  return num.toString();
-}
-
-/**
- * Format date for display
- */
-function formatDate(dateStr) {
-  const date = new Date(dateStr);
-  return date.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric'
-  });
-}
-
-/**
- * Format time ago (e.g., "5 minutes ago")
- */
-function timeAgo(dateStr) {
-  const date = new Date(dateStr);
-  const seconds = Math.floor((new Date() - date) / 1000);
-
-  const intervals = {
-    year: 31536000,
-    month: 2592000,
-    week: 604800,
-    day: 86400,
-    hour: 3600,
-    minute: 60
-  };
-
-  for (const [unit, secondsInUnit] of Object.entries(intervals)) {
-    const interval = Math.floor(seconds / secondsInUnit);
-    if (interval >= 1) {
-      return `${interval} ${unit}${interval > 1 ? 's' : ''} ago`;
-    }
-  }
-
-  return 'just now';
-}
-
-/**
- * Check if user is authenticated
- */
-function isAuthenticated() {
-  return !!localStorage.getItem('authToken');
-}
-
-/**
- * Redirect to login if not authenticated
- */
-function requireAuth() {
-  if (!isAuthenticated()) {
-    window.location.href = '/login';
-    return false;
-  }
-  return true;
-}
-
-/**
- * Show a toast notification
- */
-function showToast(message, type = 'info') {
-  // Remove existing toasts
-  document.querySelectorAll('.toast').forEach(t => t.remove());
-
-  const toast = document.createElement('div');
-  toast.className = `toast toast-${type}`;
-  toast.innerHTML = `
-    <span class="toast-icon">${type === 'success' ? '✅' : type === 'error' ? '❌' : 'ℹ️'}</span>
-    <span class="toast-message">${message}</span>
-  `;
-
-  // Add styles if not present
-  if (!document.getElementById('toast-styles')) {
-    const styles = document.createElement('style');
-    styles.id = 'toast-styles';
-    styles.textContent = `
-      .toast {
-        position: fixed;
-        bottom: 20px;
-        right: 20px;
-        background: #16181c;
-        border: 1px solid #2f3336;
-        border-radius: 12px;
-        padding: 12px 20px;
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        z-index: 10000;
-        animation: slideIn 0.3s ease;
-        color: #e7e9ea;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      }
-      .toast-success { border-color: #00ba7c; }
-      .toast-error { border-color: #f4212e; }
-      @keyframes slideIn {
-        from { transform: translateX(100%); opacity: 0; }
-        to { transform: translateX(0); opacity: 1; }
-      }
-    `;
-    document.head.appendChild(styles);
-  }
-
-  document.body.appendChild(toast);
-
-  setTimeout(() => {
-    toast.style.animation = 'slideIn 0.3s ease reverse';
-    setTimeout(() => toast.remove(), 300);
-  }, 3000);
-}
-
-// Export for module usage (if using modules)
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { CONFIG, apiRequest, aiApiRequest, pollOperationStatus, formatNumber, formatDate, timeAgo, isAuthenticated, requireAuth, showToast };
-}
+    const allCountries = [
+      { code: 'sa', name: 'السعودية', flag: '🇸🇦' },
+      { code: 'eg', name: 'مصر', flag: '🇪🇬' },
+      { code: 'ae', name: 'الإمارات', flag: '🇦🇪' },
+      { code: 'kw', name: 'الكويت', flag: '🇰🇼' },
+      { code: 'qa', name: 'قطر', flag: '🇶🇦' },
+      { code: 'om', name: 'عُمان', flag: '🇴🇲' },
+      { code: 'bh', name: 'البحرين', flag: '🇧🇭' },
+      { code: 'jo', name: 'الأردن', flag: '🇯🇴' },
+      { code: 'lb', name: 'لبنان', flag: '🇱🇧' },
+      { code: 'sy', name: 'سوريا', flag: '🇸🇾' },
+      { code: 'iq', name: 'العراق', flag: '🇮🇶' },
+      { code: 'ye', name: 'اليمن', flag: '🇾🇪' },
+      { code: 'ma', name: 'المغرب', flag: '🇲🇦' },
+      { code: 'dz', name: 'الجزائر', flag: '🇩🇿' },
+      { code: 'tn', name: 'تونس', flag: '🇹🇳' },
+      { code: 'ly', name: 'ليبيا', flag: '🇱🇾' },
+      { code: 'sd', name: 'السودان', flag: '🇸🇩' },
+      { code: 'ps', name: 'فلسطين', flag: '🇵🇸' },
+      { code: 'mr', name: 'موريتانيا', flag: '🇲🇷' },
+      { code: 'so', name: 'الصومال', flag: '🇸🇴' },
+      { code: 'dj', name: 'جيبوتي', flag: '🇩🇯' },
+      { code: 'km', name: 'جزر القمر', flag: '🇰🇲' },
+      { code: 'us', name: 'الولايات المتحدة', flag: '🇺🇸' },
+      { code: 'gb', name: 'بريطانيا', flag: '🇬🇧' },
+      { code: 'ca', name: 'كندا', flag: '🇨🇦' },
+      { code: 'au', name: 'أستراليا', flag: '🇦🇺' },
+      { code: 'de', name: 'ألمانيا', flag: '🇩🇪' },
+      { code: 'fr', name: 'فرنسا', flag: '🇫🇷' },
+      { code: 'it', name: 'إيطاليا', flag: '🇮🇹' },
+      { code: 'es', name: 'إسبانيا', flag: '🇪🇸' },
+      { code: 'tr', name: 'تركيا', flag: '🇹🇷' },
+      { code: 'in', name: 'الهند', flag: '🇮🇳' },
+      { code: 'pk', name: 'باكستان', flag: '🇵🇰' },
+      { code: 'bd', name: 'بنغلاديش', flag: '🇧🇩' },
+      { code: 'id', name: 'إندونيسيا', flag: '🇮🇩' },
+      { code: 'my', name: 'ماليزيا', flag: '🇲🇾' },
+      { code: 'sg', name: 'سنغافورة', flag: '🇸🇬' },
+      { code: 'jp', name: 'اليابان', flag: '🇯🇵' },
+      { code: 'kr', name: 'كوريا الجنوبية', flag: '🇰🇷' },
+      { code: 'cn', name: 'الصين', flag: '🇨🇳' },
+      { code: 'ru', name: 'روسيا', flag: '🇷🇺' },
+      { code: 'br', name: 'البرازيل', flag: '🇧🇷' },
+      { code: 'ar', name: 'الأرجنتين', flag: '🇦🇷' },
+      { code: 'mx', name: 'المكسيك', flag: '🇲🇽' },
+      { code: 'za', name: 'جنوب أفريقيا', flag: '🇿🇦' },
+      { code: 'ng', name: 'نيجيريا', flag: '🇳🇬' },
+      { code: 'se', name: 'السويد', flag: '🇸🇪' },
+      { code: 'no', name: 'النرويج', flag: '🇳🇴' },
+      { code: 'dk', name: 'الدنمارك', flag: '🇩🇰' },
+      { code: 'fi', name: 'فنلندا', flag: '🇫🇮' },
+      { code: 'nl', name: 'هولندا', flag: '🇳🇱' },
+      { code: 'be', name: 'بلجيكا', flag: '🇧🇪' },
+      { code: 'ch', name: 'سويسرا', flag: '🇨🇭' },
+      { code: 'at', name: 'النمسا', flag: '🇦🇹' },
+      { code: 'gr', name: 'اليونان', flag: '🇬🇷' },
+      { code: 'pt', name: 'البرتغال', flag: '🇵🇹' },
+      { code: 'ie', name: 'أيرلندا', flag: '🇮🇪' },
+      { code: 'nz', name: 'نيوزيلندا', flag: '🇳🇿' },
+      { code: 'af', name: 'أفغانستان', flag: '🇦🇫' },
+      { code: 'al', name: 'ألبانيا', flag: '🇦🇱' },
+      { code: 'ad', name: 'أندورا', flag: '🇦🇩' },
+      { code: 'ao', name: 'أنغولا', flag: '🇦🇴' },
+      { code: 'ag', name: 'أنتيغوا وبربودا', flag: '🇦🇬' },
+      { code: 'am', name: 'أرمينيا', flag: '🇦🇲' },
+      { code: 'az', name: 'أذربيجان', flag: '🇦🇿' },
+      { code: 'bs', name: 'جزر البهاما', flag: '🇧🇸' },
+      { code: 'bb', name: 'باربادوس', flag: '🇧🇧' },
+      { code: 'by', name: 'بيلاروسيا', flag: '🇧🇾' },
+      { code: 'bz', name: 'بليز', flag: '🇧🇿' },
+      { code: 'bj', name: 'بنين', flag: '🇧🇯' },
+      { code: 'bt', name: 'بوتان', flag: '🇧🇹' },
+      { code: 'bo', name: 'بوليفيا', flag: '🇧🇴' },
+      { code: 'ba', name: 'البوسنة والهرسك', flag: '🇧🇦' },
+      { code: 'bw', name: 'بوتسوانا', flag: '🇧🇼' },
+      { code: 'bn', name: 'بروناي', flag: '🇧🇳' },
+      { code: 'bg', name: 'بلغاريا', flag: '🇧🇬' },
+      { code: 'bf', name: 'بوركينا فاسو', flag: '🇧🇫' },
+      { code: 'bi', name: 'بوروندي', flag: '🇧🇮' },
+      { code: 'cv', name: 'الرأس الأخضر', flag: '🇨🇻' },
+      { code: 'kh', name: 'كمبوديا', flag: '🇰🇭' },
+      { code: 'cm', name: 'الكاميرون', flag: '🇨🇲' },
+      { code: 'cf', name: 'جمهورية أفريقيا الوسطى', flag: '🇨🇫' },
+      { code: 'td', name: 'تشاد', flag: '🇹🇩' },
+      { code: 'cl', name: 'تشيلي', flag: '🇨🇱' },
+      { code: 'co', name: 'كولومبيا', flag: '🇨🇴' },
+      { code: 'cg', name: 'الكونغو', flag: '🇨🇬' },
+      { code: 'cd', name: 'جمهورية الكونغو الديمقراطية', flag: '🇨🇩' },
+      { code: 'cr', name: 'كوستاريكا', flag: '🇨🇷' },
+      { code: 'hr', name: 'كرواتيا', flag: '🇭🇷' },
+      { code: 'cu', name: 'كوبا', flag: '🇨🇺' },
+      { code: 'cy', name: 'قبرص', flag: '🇨🇾' },
+      { code: 'cz', name: 'التشيك', flag: '🇨🇿' },
+      { code: 'do', name: 'جمهورية الدومينيكان', flag: '🇩🇴' },
+      { code: 'ec', name: 'الإكوادور', flag: '🇪🇨' },
+      { code: 'sv', name: 'السلفادور', flag: '🇸🇻' },
+      { code: 'gq', name: 'غينيا الاستوائية', flag: '🇬🇶' },
+      { code: 'er', name: 'إريتريا', flag: '🇪🇷' },
+      { code: 'ee', name: 'إستونيا', flag: '🇪🇪' },
+      { code: 'sz', name: 'إسواتيني', flag: '🇸🇿' },
+      { code: 'et', name: 'إثيوبيا', flag: '🇪🇹' },
+      { code: 'fj', name: 'فيجي', flag: '🇫🇯' },
+      { code: 'ga', name: 'الغابون', flag: '🇬🇦' },
+      { code: 'gm', name: 'غامبيا', flag: '🇬🇲' },
+      { code: 'ge', name: 'جورجيا', flag: '🇬🇪' },
+      { code: 'gh', name: 'غانا', flag: '🇬🇭' },
+      { code: 'gd', name: 'غرينادا', flag: '🇬🇩' },
+      { code: 'gt', name: 'غواتيمالا', flag: '🇬🇹' },
+      { code: 'gn', name: 'غينيا', flag: '🇬🇳' },
+      { code: 'gw', name: 'غينيا بيساو', flag: '🇬🇼' },
+      { code: 'gy', name: 'غويانا', flag: '🇬🇾' },
+      { code: 'ht', name: 'هايتي', flag: '🇭🇹' },
+      { code: 'hn', name: 'هندوراس', flag: '🇭🇳' },
+      { code: 'hu', name: 'المجر', flag: '🇭🇺' },
+      { code: 'is', name: 'آيسلندا', flag: '🇮🇸' },
+      { code: 'ir', name: 'إيران', flag: '🇮🇷' },
+      { code: 'ci', name: 'ساحل العاج', flag: '🇨🇮' },
+      { code: 'jm', name: 'جامايكا', flag: '🇯🇲' },
+      { code: 'kz', name: 'كازاخستان', flag: '🇰🇿' },
+      { code: 'ke', name: 'كينيا', flag: '🇰🇪' },
+      { code: 'ki', name: 'كيريباتي', flag: '🇰🇮' },
+      { code: 'kp', name: 'كوريا الشمالية', flag: '🇰🇵' },
+      { code: 'kg', name: 'قيرغيزستان', flag: '🇰🇬' },
+      { code: 'la', name: 'لاوس', flag: '🇱🇦' },
+      { code: 'lv', name: 'لاتفيا', flag: '🇱🇻' },
+      { code: 'ls', name: 'ليسوتو', flag: '🇱🇸' },
+      { code: 'lr', name: 'ليبيريا', flag: '🇱🇷' },
+      { code: 'li', name: 'ليختنشتاين', flag: '🇱🇮' },
+      { code: 'lt', name: 'ليتوانيا', flag: '🇱🇹' },
+      { code: 'lu', name: 'لوكسمبورغ', flag: '🇱🇺' },
+      { code: 'mg', name: 'مدغشقر', flag: '🇲🇬' },
+      { code: 'mw', name: 'ملاوي', flag: '🇲🇼' },
+      { code: 'mv', name: 'المالديف', flag: '🇲🇻' },
+      { code: 'ml', name: 'مالي', flag: '🇲🇱' },
+      { code: 'mt', name: 'مالطا', flag: '🇲🇹' },
+      { code: 'mh', name: 'جزر مارشال', flag: '🇲🇭' },
+      { code: 'mu', name: 'موريشيوس', flag: '🇲🇺' },
+      { code: 'fm', name: 'ميكرونيزيا', flag: '🇫🇲' },
+      { code: 'md', name: 'مولدوفا', flag: '🇲🇩' },
+      { code: 'mc', name: 'موناكو', flag: '🇲🇨' },
+      { code: 'mn', name: 'منغوليا', flag: '🇲🇳' },
+      { code: 'me', name: 'الجبل الأسود', flag: '🇲🇪' },
+      { code: 'mz', name: 'موزمبيق', flag: '🇲🇿' },
+      { code: 'mm', name: 'ميانمار', flag: '🇲🇲' },
+      { code: 'na', name: 'ناميبيا', flag: '🇳🇦' },
+      { code: 'nr', name: 'ناورو', flag: '🇳🇷' },
+      { code: 'np', name: 'نيبال', flag: '🇳🇵' },
+      { code: 'ni', name: 'نيكاراغوا', flag: '🇳🇮' },
+      { code: 'ne', name: 'النيجر', flag: '🇳🇪' },
+      { code: 'mk', name: 'مقدونيا الشمالية', flag: '🇲🇰' },
+      { code: 'pw', name: 'بالاو', flag: '🇵🇼' },
+      { code: 'pa', name: 'بنما', flag: '🇵🇦' },
+      { code: 'pg', name: 'بابوا غينيا الجديدة', flag: '🇵🇬' },
+      { code: 'py', name: 'باراغواي', flag: '🇵🇾' },
+      { code: 'pe', name: 'بيرو', flag: '🇵🇪' },
+      { code: 'ph', name: 'الفلبين', flag: '🇵🇭' },
+      { code: 'pl', name: 'بولندا', flag: '🇵🇱' },
+      { code: 'ro', name: 'رومانيا', flag: '🇷🇴' },
+      { code: 'rw', name: 'رواندا', flag: '🇷🇼' },
+      { code: 'kn', name: 'سانت كيتس ونيفيس', flag: '🇰🇳' },
+      { code: 'lc', name: 'سانت لوسيا', flag: '🇱🇨' },
+      { code: 'vc', name: 'سانت فينسنت والغرينادين', flag: '🇻🇨' },
+      { code: 'ws', name: 'ساموا', flag: '🇼🇸' },
+      { code: 'sm', name: 'سان مارينو', flag: '🇸🇲' },
+      { code: 'st', name: 'ساو تومي وبرينسيب', flag: '🇸🇹' },
+      { code: 'sn', name: 'السنغال', flag: '🇸🇳' },
+      { code: 'rs', name: 'صربيا', flag: '🇷🇸' },
+      { code: 'sc', name: 'سيشل', flag: '🇸🇨' },
+      { code: 'sl', name: 'سيراليون', flag: '🇸🇱' },
+      { code: 'sk', name: 'سلوفاكيا', flag: '🇸🇰' },
+      { code: 'si', name: 'سلوفينيا', flag: '🇸🇮' },
+      { code: 'sb', name: 'جزر سليمان', flag: '🇸🇧' },
+      { code: 'lk', name: 'سريلانكا', flag: '🇱🇰' },
+      { code: 'sr', name: 'سورينام', flag: '🇸🇷' },
+      { code: 'tj', name: 'طاجيكستان', flag: '🇹🇯' },
+      { code: 'tz', name: 'تنزانيا', flag: '🇹🇿' },
+      { code: 'th', name: 'تايلاند', flag: '🇹🇭' },
+      { code: 'tl', name: 'تيمور الشرقية', flag: '🇹🇱' },
+      { code: 'tg', name: 'توغو', flag: '🇹🇬' },
+      { code: 'to', name: 'تونغا', flag: '🇹🇴' },
+      { code: 'tt', name: 'ترينيداد وتوباغو', flag: '🇹🇹' },
+      { code: 'tm', name: 'تركمانستان', flag: '🇹🇲' },
+      { code: 'tv', name: 'توفالو', flag: '🇹🇻' },
+      { code: 'ug', name: 'أوغندا', flag: '🇺🇬' },
+      { code: 'ua', name: 'أوكرانيا', flag: '🇺🇦' },
+      { code: 'uy', name: 'أوروغواي', flag: '🇺🇾' },
+      { code: 'uz', name: 'أوزبكستان', flag: '🇺🇿' },
+      { code: 'vu', name: 'فانواتو', flag: '🇻🇺' },
+      { code: 'va', name: 'الفاتيكان', flag: '🇻🇦' },
+      { code: 've', name: 'فنزويلا', flag: '🇻🇪' },
+      { code: 'vn', name: 'فيتنام', flag: '🇻🇳' },
+      { code: 'zm', name: 'زامبيا', flag: '🇿🇲' },
+      { code: 'zw', name: 'زيمبابوي', flag: '🇿🇼' }
+    ].sort((a, b) => a.name.localeCompare(b.name, 'ar'));

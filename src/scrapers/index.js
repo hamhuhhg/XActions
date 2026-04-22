@@ -73,6 +73,38 @@ export async function loginWithCookie(page, authToken) {
   return page;
 }
 
+/**
+ * Login with Facebook session cookie
+ */
+export async function loginWithFacebookCookie(page, tokenString) {
+  // Parse token string
+  const tokens = tokenString.split(';').reduce((acc, part) => {
+    const splitIndex = part.indexOf('=');
+    if (splitIndex !== -1) {
+       const key = part.slice(0, splitIndex).trim();
+       const val = part.slice(splitIndex + 1).trim();
+       if (key && val) {
+         acc[key] = val;
+       }
+    }
+    return acc;
+  }, {});
+
+  const cUser = tokens['c_user'];
+  const xs = tokens['xs'];
+
+  if (!cUser || !xs) {
+    throw new Error('Invalid Facebook token format. Must contain c_user and xs.');
+  }
+
+  await page.setCookie(
+    { name: 'c_user', value: cUser, domain: '.facebook.com', path: '/', httpOnly: false, secure: true },
+    { name: 'xs', value: xs, domain: '.facebook.com', path: '/', httpOnly: true, secure: true }
+  );
+  await page.goto('https://www.facebook.com/', { waitUntil: 'domcontentloaded', timeout: 0 });
+  return page;
+}
+
 // ============================================================================
 // Profile Scraper
 // ============================================================================
@@ -709,6 +741,7 @@ export default {
   createBrowser,
   createPage,
   loginWithCookie,
+  loginWithFacebookCookie,
 
   // Scrapers
   scrapeProfile,

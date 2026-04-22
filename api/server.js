@@ -39,6 +39,8 @@ import webhookRoutes from './routes/webhooks.js';
 import aiRoutes from './routes/ai/index.js';
 // New unified API for dashboard (Scrapers + Automation Scripts)
 import newApiRoutes from './routes/new_api.js';
+// AI Chat with tool use (OpenAI-compatible, configurable endpoint)
+import aiChatRoutes from './routes/ai-chat.js';
 import { initializeSocketIO } from './realtime/socketHandler.js';
 import { initializeLicensing, brandingMiddleware } from './services/licensing.js';
 
@@ -156,6 +158,8 @@ app.use('/api/license', licenseRoutes);
 app.use('/api/admin', adminRoutes);
 // Dashboard UI APIs (Data Scrapers + Automation)
 app.use('/api/new_api', newApiRoutes);
+// AI Chat (OpenAI-compatible, configurable endpoint)
+app.use('/api/ai-chat', aiChatRoutes);
 
 // Dashboard routes
 app.get('/', (req, res) => {
@@ -189,6 +193,10 @@ app.get('/mcp', (req, res) => {
 
 app.get('/ai', (req, res) => {
   res.sendFile(path.join(__dirname, '../dashboard/ai.html'));
+});
+
+app.get('/chat', (req, res) => {
+  res.sendFile(path.join(__dirname, '../dashboard/chat.html'));
 });
 
 app.get('/ai-api', (req, res) => {

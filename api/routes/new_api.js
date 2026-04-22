@@ -5,6 +5,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { PrismaClient } from '@prisma/client';
 import puppeteer from 'puppeteer';
+import { spawn } from 'child_process';
+import { fbToolMap, closeBrowser as closeFbBrowser } from '../../src/mcp/facebook-tools.js';
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -201,10 +203,52 @@ router.post('/run', async (req, res) => {
  * INTERACTIVE LOGIN ENDPOINT
  * ============================================================================
  */
-import { spawn } from 'child_process';
-
 router.get('/login', async (req, res) => {
     try {
+        const { platform } = req.query;
+
+        if (platform === 'facebook') {
+            const browser = await puppeteer.launch({
+                headless: false,
+                defaultViewport: null,
+                args: ['--start-maximized']
+            });
+            const page = await browser.pages().then(p => p[0] || browser.newPage());
+            await page.goto('https://www.facebook.com/login', { waitUntil: 'networkidle2' });
+            
+            // Wait for user to login
+            let loggedIn = false;
+            let checks = 0;
+            while (checks < 60) { // maximum 2 minutes
+                try {
+                    const cookies = await page.cookies();
+                    const cUser = cookies.find(c => c.name === 'c_user')?.value;
+                    const xs = cookies.find(c => c.name === 'xs')?.value;
+
+                    if (cUser && xs) {
+                        loggedIn = true;
+                        // Give it a tiny bit to set all cookies
+                        await new Promise(r => setTimeout(r, 1000));
+                        const allCookies = await page.cookies();
+                        await browser.close().catch(() => {});
+                        return res.json({ success: true, token: JSON.stringify(allCookies), accountName: cUser });
+                    }
+                    await new Promise(r => setTimeout(r, 2000));
+                    checks++;
+                    
+                    if (browser.process().killed) break;
+                } catch(e) {
+                    break; // browser closed manually
+                }
+            }
+
+            await browser.close().catch(() => {});
+            if (!loggedIn) {
+                return res.json({ success: false, error: 'انتهى الوقت أو تم إغلاق المتصفح دون الاستخراج.' });
+            }
+            return;
+        }
+
         const scriptPath = path.join(process.cwd(), 'scripts', 'nodriver_login.py');
 
         // Ensure python is available in the environment
@@ -260,9 +304,36 @@ router.get('/login', async (req, res) => {
  */
 router.post('/check_suspension', async (req, res) => {
     try {
-        const { token, username } = req.body;
+        const { token, username, platform } = req.body;
 
         if (!token) return res.status(400).json({ success: false, error: 'auth_token is required' });
+        
+        // Facebook suspension check (basic)
+        if (platform === 'facebook') {
+             let browser = null;
+             try {
+                browser = await scrapers.createBrowser();
+                const page = await scrapers.createPage(browser);
+                await scrapers.loginWithFacebookCookie(page, token);
+                
+                // wait to see if we land on login page or home page
+                await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 10000 }).catch(() => {});
+                const url = page.url();
+                const isSuspended = url.includes('login') || url.includes('checkpoint');
+
+                await browser.close();
+                return res.json({ 
+                    success: true, 
+                    isSuspended: isSuspended, 
+                    doesNotExist: false,
+                    message: !isSuspended ? 'Account is active' : 'Account appears suspended or cookies expired'
+                });
+             } catch(e) {
+                 if (browser) await browser.close();
+                 return res.status(500).json({ success: false, error: 'Facebook check failed: ' + e.message });
+             }
+        }
+
         if (!username) return res.status(400).json({ success: false, error: 'username is required' });
 
         const scriptPath = path.join(process.cwd(), 'scripts', 'check_suspension.py');
@@ -309,20 +380,21 @@ router.post('/check_suspension', async (req, res) => {
  */
 router.post('/safe_browser', async (req, res) => {
     try {
-        const { token } = req.body;
+        const { token, platform } = req.body;
 
         if (!token) return res.status(400).json({ success: false, error: 'auth_token is required' });
 
-        const scriptPath = path.join(process.cwd(), 'scripts', 'safe_browser.py');
+        const scriptPath = path.join(process.cwd(), 'scripts', 'safe_browser.js');
 
         // We spawn the process and don't wait for it to close since it stays open indefinitely
-        const pythonProcess = spawn('python', [scriptPath, '--token', token], {
+        const b64Token = Buffer.from(token).toString('base64');
+        const nodeProcess = spawn('node', [scriptPath, '--token_b64', b64Token, '--platform', platform || 'twitter'], {
             detached: true,
             stdio: 'ignore' // We don't need to read output, and this helps it detach properly
         });
 
         // Prevent parent from waiting for this child process to exit
-        pythonProcess.unref();
+        nodeProcess.unref();
 
         res.json({ success: true, message: 'Browser launched successfully.' });
     } catch (error) {
@@ -402,6 +474,19 @@ router.delete('/campaigns/:id', async (req, res) => {
     }
 });
 
+// Get all accounts
+router.get('/accounts', async (req, res) => {
+    try {
+        const accounts = await prisma.socialAccount.findMany({
+            orderBy: { createdAt: 'desc' }
+        });
+        res.json({ success: true, data: accounts });
+    } catch (error) {
+        console.error('Error fetching accounts:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 // Sync accounts from frontend
 router.post('/accounts/sync', async (req, res) => {
     try {
@@ -409,9 +494,10 @@ router.post('/accounts/sync', async (req, res) => {
         if (!Array.isArray(accounts)) return res.status(400).json({ success: false, error: 'Accounts array required' });
 
         for (const acc of accounts) {
-            await prisma.xAccount.upsert({
+            await prisma.socialAccount.upsert({
                 where: { id: acc.id.toString() },
                 update: {
+                    platform: acc.platform || 'twitter',
                     name: acc.name,
                     token: acc.token,
                     country: acc.country,
@@ -419,6 +505,7 @@ router.post('/accounts/sync', async (req, res) => {
                 },
                 create: {
                     id: acc.id.toString(),
+                    platform: acc.platform || 'twitter',
                     name: acc.name,
                     token: acc.token,
                     country: acc.country,
@@ -429,6 +516,24 @@ router.post('/accounts/sync', async (req, res) => {
         res.json({ success: true, message: 'Accounts synced successfully' });
     } catch (error) {
         console.error('Error syncing accounts:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Delete an account
+router.delete('/accounts/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        await prisma.socialAccount.delete({
+            where: { id }
+        });
+        res.json({ success: true, message: 'Account deleted' });
+    } catch (error) {
+        // If not found, it's fine
+        if (error.code === 'P2025') {
+            return res.json({ success: true, message: 'Account was already deleted or not found' });
+        }
+        console.error('Error deleting account:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 });
@@ -464,6 +569,43 @@ router.post('/upload_media', async (req, res) => {
     }
 });
 
+
+// ----------------------------------------------------------------------------
+// FACEBOOK ACTION ENDPOINTS
+// ----------------------------------------------------------------------------
+
+router.post('/facebook/run', async (req, res) => {
+    const { scriptName, options } = req.body;
+    const authToken = req.headers['x-auth-token'] || req.cookies?.auth_token;
+
+    if (!authToken) {
+        return res.status(401).json({ error: 'Facebook cookies (auth_token) are REQUIRED to run actions' });
+    }
+
+    if (!scriptName || !fbToolMap[scriptName]) {
+        return res.status(400).json({ error: `Facebook tool '${scriptName}' is not defined.` });
+    }
+
+    try {
+        // Facebook tools expect the cookie as part of the arguments
+        const runArgs = { ...options, cookie: authToken };
+        
+        console.log(`[Facebook API] Running ${scriptName}...`);
+        const result = await fbToolMap[scriptName](runArgs);
+        
+        // Return structured result
+        if (result && result.success) {
+            res.json({ success: true, data: result });
+        } else {
+            res.status(400).json({ success: false, error: result?.error || 'Action failed' });
+        }
+    } catch (error) {
+        console.error('Facebook Automation error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    } finally {
+        await closeFbBrowser().catch(e => console.error("Error closing FB browser:", e));
+    }
+});
 
 // ----------------------------------------------------------------------------
 // CAMPAIGN EXECUTION ENGINE

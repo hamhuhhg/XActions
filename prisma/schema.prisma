@@ -257,14 +257,18 @@ model Campaign {
   @@index([createdAt])
 }
 
-model XAccount {
-  id          String   @id @default(cuid())
+model SocialAccount {
+  id          String   @id @default(cuid()) // e.g., mcp_x_123 or mcp_fb_456
+  platform    String   @default("twitter")  // "twitter", "facebook", etc.
   name        String
-  token       String
+  identifier  String?  // Username or Profile ID
+  token       String   // Cookie or Auth Token (JSON string for multiple cookies if needed)
   country     String?
   isSuspended Boolean  @default(false)
+  status      String   @default("active")   // "active", "session_expired", "locked"
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   @@index([name])
+  @@index([platform])
 }
