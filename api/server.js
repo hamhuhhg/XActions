@@ -6,6 +6,7 @@ import morgan from 'morgan';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { createServer } from 'http';
+import { spawn } from 'child_process';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -289,6 +290,35 @@ httpServer.listen(PORT, async () => {
 
   // Initialize licensing and telemetry
   await initializeLicensing();
+
+  // Automatically start the camofox-browser API server securely
+  const crypto = await import('crypto');
+  const generatedApiKey = crypto.randomBytes(32).toString('hex');
+  process.env.CAMOFOX_API_KEY = generatedApiKey; // Inject into XActions environment for clients
+
+  console.log(`🦊 Starting camofox-browser API server in the background (Secured)...`);
+  const camofoxProcess = spawn('node', [path.join(__dirname, '../scratch/camofox-browser/server.js')], {
+    stdio: 'inherit', // Pipes output to the main terminal so the user can see it
+    shell: false,
+    env: { ...process.env, PORT: '9377', CAMOFOX_API_KEY: generatedApiKey }
+  });
+
+  camofoxProcess.on('error', (err) => {
+    console.error(`❌ Failed to start camofox-browser: ${err.message}`);
+  });
+
+  // Graceful shutdown
+  const shutdown = () => {
+    if (!camofoxProcess.killed) {
+      console.log('🛑 Shutting down camofox-browser...');
+      camofoxProcess.kill();
+    }
+    process.exit(0);
+  };
+
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
+  process.on('SIGUSR2', shutdown); // For nodemon restarts
 });
 
 export default app;

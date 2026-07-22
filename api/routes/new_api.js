@@ -4,8 +4,8 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { PrismaClient } from '@prisma/client';
-import puppeteer from 'puppeteer';
 import { spawn } from 'child_process';
+import puppeteer from 'puppeteer';
 import { fbToolMap, closeBrowser as closeFbBrowser } from '../../src/mcp/facebook-tools.js';
 
 const router = express.Router();
@@ -211,6 +211,7 @@ router.get('/login', async (req, res) => {
             const browser = await puppeteer.launch({
                 headless: false,
                 defaultViewport: null,
+                channel: 'chrome',
                 args: ['--start-maximized']
             });
             const page = await browser.pages().then(p => p[0] || browser.newPage());
@@ -317,8 +318,8 @@ router.post('/check_suspension', async (req, res) => {
                 await scrapers.loginWithFacebookCookie(page, token);
                 
                 // wait to see if we land on login page or home page
-                await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 10000 }).catch(() => {});
-                const url = page.url();
+                await new Promise(r => setTimeout(r, 5000));
+                const url = page.url ? (typeof page.url === 'function' ? page.url() : page.url) : '';
                 const isSuspended = url.includes('login') || url.includes('checkpoint');
 
                 await browser.close();

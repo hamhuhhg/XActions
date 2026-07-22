@@ -348,7 +348,21 @@
           if (data.accountName) {
             document.getElementById('new-account-name').value = data.accountName;
           }
-          alert('تم تسجيل الدخول واستخراج الرمز بنجاح!');
+          
+          // Automatically save the account
+          const platform = typeof currentAccountPlatform !== 'undefined' ? currentAccountPlatform : 'twitter';
+          xactionsAccounts.push({ 
+            id: Date.now(), 
+            name: data.accountName || 'Unknown', 
+            token: data.token, 
+            country: 'global', 
+            platform: platform 
+          });
+          localStorage.setItem('xactions_accounts', JSON.stringify(xactionsAccounts));
+          syncAccountsWithDb();
+          renderAccountsList();
+          
+          alert('تم تسجيل الدخول واستخراج الرمز وحفظ الحساب بنجاح!');
         } else {
           alert('خطأ: ' + (data.error || 'فشل في تسجيل الدخول.'));
         }

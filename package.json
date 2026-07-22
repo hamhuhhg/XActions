@@ -40,11 +40,13 @@
     "test:payment": "node scripts/test-x402-payment.js"
   },
   "dependencies": {
+    "@askjo/camofox-browser": "^1.6.0",
     "@modelcontextprotocol/sdk": "^1.0.0",
     "@prisma/client": "^5.7.1",
     "axios": "^1.6.2",
     "bcryptjs": "^2.4.3",
     "bull": "^4.12.0",
+    "camoufox-js": "^0.10.2",
     "chalk": "^5.3.0",
     "commander": "^12.0.0",
     "cors": "^2.8.5",
@@ -58,6 +60,7 @@
     "morgan": "^1.10.0",
     "ora": "^8.0.0",
     "patchright": "^1.57.0",
+    "playwright": "^1.59.1",
     "prisma": "^5.7.1",
     "puppeteer": "^24.34.0",
     "puppeteer-extra": "^3.3.6",

@@ -10,11 +10,8 @@
  * @license MIT
  */
 
-import puppeteer from 'puppeteer-extra';
-import StealthPlugin from 'puppeteer-extra-plugin-stealth';
+import { CamofoxClient } from '../mcp/camofox-client.js';
 import fs from 'fs/promises';
-
-puppeteer.use(StealthPlugin());
 
 // ============================================================================
 // Core Utilities
@@ -27,16 +24,14 @@ const randomDelay = (min = 1000, max = 3000) => sleep(min + Math.random() * (max
  * Create a browser instance with stealth settings
  */
 export async function createBrowser(options = {}) {
-  return puppeteer.launch({
-    headless: options.headless !== false ? 'new' : false,
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-blink-features=AutomationControlled',
-      '--disable-web-security',
-    ],
-    ...options,
-  });
+  // Using CamofoxClient instead of Puppeteer
+  const client = new CamofoxClient('xactions_scraper');
+  await client.createTab();
+  // Duck-type as browser
+  return {
+    newPage: async () => client,
+    close: async () => client.closeTab()
+  };
 }
 
 /**
@@ -45,15 +40,11 @@ export async function createBrowser(options = {}) {
 export async function createPage(browser) {
   const page = await browser.newPage();
 
-  // CRITICAL: Disable Content Security Policy so we can deeply inject automation scripts
-  await page.setBypassCSP(true);
+  // Stub bypassCSP as Camoufox handles security restrictions dynamically or doesn't need it
+  page.setBypassCSP = async () => {};
+  // Stub setDefaultNavigationTimeout
+  page.setDefaultNavigationTimeout = async () => {};
 
-  await page.setViewport({ width: 1280 + Math.floor(Math.random() * 100), height: 800 });
-  await page.setUserAgent(
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-  );
-  // Disable default navigation timeout to prevent 60s crashes during long automation tasks
-  await page.setDefaultNavigationTimeout(0);
   return page;
 }
 
@@ -77,30 +68,58 @@ export async function loginWithCookie(page, authToken) {
  * Login with Facebook session cookie
  */
 export async function loginWithFacebookCookie(page, tokenString) {
-  // Parse token string
-  const tokens = tokenString.split(';').reduce((acc, part) => {
-    const splitIndex = part.indexOf('=');
-    if (splitIndex !== -1) {
-       const key = part.slice(0, splitIndex).trim();
-       const val = part.slice(splitIndex + 1).trim();
-       if (key && val) {
-         acc[key] = val;
-       }
-    }
-    return acc;
-  }, {});
+  let cUser, xs;
+  let cookiesToSet = [];
 
-  const cUser = tokens['c_user'];
-  const xs = tokens['xs'];
+  try {
+    const parsed = JSON.parse(tokenString);
+    if (Array.isArray(parsed)) {
+      const cUserCookie = parsed.find(c => c.name === 'c_user');
+      const xsCookie = parsed.find(c => c.name === 'xs');
+      cUser = cUserCookie ? cUserCookie.value : undefined;
+      xs = xsCookie ? xsCookie.value : undefined;
+      
+      cookiesToSet = parsed.map(c => ({
+        name: c.name,
+        value: c.value,
+        domain: c.domain || '.facebook.com',
+        path: c.path || '/',
+        httpOnly: c.httpOnly || false,
+        secure: c.secure !== false
+      }));
+    }
+  } catch (e) {
+    // Not JSON format, fallback to string parsing
+  }
+
+  if (!cUser || !xs) {
+    // Parse token string
+    const tokens = tokenString.split(';').reduce((acc, part) => {
+      const splitIndex = part.indexOf('=');
+      if (splitIndex !== -1) {
+         const key = part.slice(0, splitIndex).trim();
+         const val = part.slice(splitIndex + 1).trim();
+         if (key && val) {
+           acc[key] = val;
+         }
+      }
+      return acc;
+    }, {});
+
+    cUser = tokens['c_user'];
+    xs = tokens['xs'];
+
+    cookiesToSet = [
+      { name: 'c_user', value: cUser, domain: '.facebook.com', path: '/', httpOnly: false, secure: true },
+      { name: 'xs', value: xs, domain: '.facebook.com', path: '/', httpOnly: true, secure: true }
+    ];
+  }
 
   if (!cUser || !xs) {
     throw new Error('Invalid Facebook token format. Must contain c_user and xs.');
   }
 
-  await page.setCookie(
-    { name: 'c_user', value: cUser, domain: '.facebook.com', path: '/', httpOnly: false, secure: true },
-    { name: 'xs', value: xs, domain: '.facebook.com', path: '/', httpOnly: true, secure: true }
-  );
+  await page.setCookie(...cookiesToSet);
   await page.goto('https://www.facebook.com/', { waitUntil: 'domcontentloaded', timeout: 0 });
   return page;
 }

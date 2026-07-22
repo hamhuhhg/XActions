@@ -10,35 +10,20 @@
  * @license MIT
  */
 
-import puppeteer from 'puppeteer-extra';
-import StealthPlugin from 'puppeteer-extra-plugin-stealth';
+import { CamofoxClient } from './camofox-client.js';
 
-puppeteer.use(StealthPlugin());
-
-// Browser instance (reused across calls)
-let browser = null;
-let page = null;
+let client = null;
 
 /**
- * Initialize browser with stealth mode
+ * Initialize camofox client (duck-types as browser and page)
  */
 async function initBrowser() {
-  if (!browser) {
-    browser = await puppeteer.launch({
-      headless: 'new',
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-blink-features=AutomationControlled',
-      ],
-    });
-    page = await browser.newPage();
-    await page.setViewport({ width: 1280, height: 800 });
-    await page.setUserAgent(
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-    );
+  if (!client) {
+    client = new CamofoxClient('xactions_local');
+    await client.createTab();
   }
-  return { browser, page };
+  // Return the client as both browser and page for compatibility
+  return { browser: client, page: client };
 }
 
 /**
@@ -51,10 +36,9 @@ const randomDelay = () => sleep(1000 + Math.random() * 2000);
  * Close browser (for cleanup)
  */
 export async function closeBrowser() {
-  if (browser) {
-    await browser.close();
-    browser = null;
-    page = null;
+  if (client) {
+    await client.closeTab();
+    client = null;
   }
 }
 
