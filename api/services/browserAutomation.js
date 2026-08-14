@@ -8,11 +8,7 @@
  * @author nichxbt
  */
 
-import puppeteer from 'puppeteer-extra';
-import StealthPlugin from 'puppeteer-extra-plugin-stealth';
-
-// Add stealth plugin to avoid detection
-puppeteer.use(StealthPlugin());
+import TurnstileClient, { createBrowser as createTurnstileBrowser } from '../../src/solver/turnstile-client.js';
 
 // ============================================================================
 // Core Utilities
@@ -25,24 +21,12 @@ const randomDelay = (min = 1000, max = 3000) => sleep(min + Math.random() * (max
 let browserInstance = null;
 
 /**
- * Get or create browser instance
+ * Get or create browser instance using TurnstileSolver engine
  */
 async function getBrowser() {
   if (!browserInstance) {
-    browserInstance = await puppeteer.launch({
-      headless: 'new',
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-accelerated-2d-canvas',
-        '--no-first-run',
-        '--no-zygote',
-        '--disable-gpu',
-        '--disable-blink-features=AutomationControlled',
-        '--window-size=1920,1080'
-      ]
-    });
+    browserInstance = new TurnstileClient('api_browser_automation');
+    await browserInstance.createSession();
   }
   return browserInstance;
 }
@@ -52,7 +36,7 @@ async function getBrowser() {
  */
 export async function closeBrowser() {
   if (browserInstance) {
-    await browserInstance.close();
+    await browserInstance.destroySession();
     browserInstance = null;
   }
 }
@@ -61,23 +45,11 @@ export async function closeBrowser() {
  * Create an authenticated page with session cookie
  */
 async function getAuthenticatedPage(sessionCookie) {
-  const browser = await getBrowser();
-  const page = await browser.newPage();
-
-  // Set viewport with slight randomization
-  await page.setViewport({ 
-    width: 1280 + Math.floor(Math.random() * 100), 
-    height: 800 + Math.floor(Math.random() * 100) 
-  });
-
-  // Set user agent
-  await page.setUserAgent(
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-  );
+  const client = await getBrowser();
 
   // Set session cookie if provided
   if (sessionCookie) {
-    await page.setCookie({
+    await client.setCookie({
       name: 'auth_token',
       value: sessionCookie,
       domain: '.x.com',
@@ -87,7 +59,7 @@ async function getAuthenticatedPage(sessionCookie) {
     });
   }
 
-  return page;
+  return client;
 }
 
 // ============================================================================

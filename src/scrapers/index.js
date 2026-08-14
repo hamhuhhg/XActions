@@ -10,7 +10,7 @@
  * @license MIT
  */
 
-import { CamofoxClient } from '../mcp/camofox-client.js';
+import TurnstileClient, { createBrowser as createTurnstileBrowser, createPage as createTurnstilePage } from '../solver/turnstile-client.js';
 import fs from 'fs/promises';
 
 // ============================================================================
@@ -21,31 +21,17 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const randomDelay = (min = 1000, max = 3000) => sleep(min + Math.random() * (max - min));
 
 /**
- * Create a browser instance with stealth settings
+ * Create a browser instance with stealth TurnstileSolver settings
  */
 export async function createBrowser(options = {}) {
-  // Using CamofoxClient instead of Puppeteer
-  const client = new CamofoxClient('xactions_scraper');
-  await client.createTab();
-  // Duck-type as browser
-  return {
-    newPage: async () => client,
-    close: async () => client.closeTab()
-  };
+  return await createTurnstileBrowser(options);
 }
 
 /**
- * Create a page with realistic settings
+ * Create a page with TurnstileSolver browser strategy
  */
 export async function createPage(browser) {
-  const page = await browser.newPage();
-
-  // Stub bypassCSP as Camoufox handles security restrictions dynamically or doesn't need it
-  page.setBypassCSP = async () => {};
-  // Stub setDefaultNavigationTimeout
-  page.setDefaultNavigationTimeout = async () => {};
-
-  return page;
+  return await createTurnstilePage(browser);
 }
 
 /**

@@ -10,17 +10,17 @@
  * @license MIT
  */
 
-import { CamofoxClient } from './camofox-client.js';
+import TurnstileClient from '../solver/turnstile-client.js';
 
 let client = null;
 
 /**
- * Initialize camofox client (duck-types as browser and page)
+ * Initialize TurnstileClient (duck-types as browser and page)
  */
 async function initBrowser() {
   if (!client) {
-    client = new CamofoxClient('xactions_local');
-    await client.createTab();
+    client = new TurnstileClient('xactions_local');
+    await client.createSession();
   }
   // Return the client as both browser and page for compatibility
   return { browser: client, page: client };

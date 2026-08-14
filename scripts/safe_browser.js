@@ -1,7 +1,4 @@
-import puppeteer from 'puppeteer-extra';
-import StealthPlugin from 'puppeteer-extra-plugin-stealth';
-
-puppeteer.use(StealthPlugin());
+import TurnstileClient from '../src/solver/turnstile-client.js';
 
 async function main() {
     const args = process.argv.slice(2);
@@ -25,20 +22,8 @@ async function main() {
 
     const auth_token = Buffer.from(b64Token, 'base64').toString('utf8');
 
-    const browser = await puppeteer.launch({
-        headless: false,
-        defaultViewport: null,
-        args: [
-            '--start-maximized',
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-blink-features=AutomationControlled',
-            '--disable-notifications'
-        ]
-    });
-
-    const pages = await browser.pages();
-    const page = pages.length > 0 ? pages[0] : await browser.newPage();
+    const client = new TurnstileClient('safe_browser');
+    await client.createSession();
 
     if (platform === 'facebook') {
         let parsedCookies = [];
@@ -71,11 +56,11 @@ async function main() {
         }
 
         if (parsedCookies.length > 0) {
-            await page.setCookie(...parsedCookies);
+            await client.setCookie(...parsedCookies);
         }
-        await page.goto('https://www.facebook.com/');
+        await client.goto('https://www.facebook.com/');
     } else {
-        await page.setCookie({
+        await client.setCookie({
             name: 'auth_token',
             value: String(auth_token),
             domain: '.twitter.com',
@@ -84,7 +69,7 @@ async function main() {
             httpOnly: true,
             sameSite: 'None'
         });
-        await page.setCookie({
+        await client.setCookie({
             name: 'auth_token',
             value: String(auth_token),
             domain: '.x.com',
@@ -93,15 +78,10 @@ async function main() {
             httpOnly: true,
             sameSite: 'None'
         });
-        await page.goto('https://x.com/home');
+        await client.goto('https://x.com/home');
     }
     
-    console.log("Browser launched successfully. Keeping alive...");
-    
-    browser.on('disconnected', () => {
-        console.log("Browser closed. Exiting.");
-        process.exit(0);
-    });
+    console.log("TurnstileSolver session launched successfully. Active URL:", client.url());
 }
 
 main().catch(error => {

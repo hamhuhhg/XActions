@@ -22,6 +22,7 @@
     "xactions": "./src/cli/index.js"
   },
   "scripts": {
+    "solver": "python solver/main.py",
     "dev": "cross-env NODE_ENV=development nodemon api/server.js",
     "start": "cross-env NODE_ENV=production node api/server.js",
     "cli": "node src/cli/index.js",

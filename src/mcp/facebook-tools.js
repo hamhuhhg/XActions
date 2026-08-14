@@ -1,21 +1,21 @@
 #!/usr/bin/env node
 /**
  * XActions Local Tools FOR FACEBOOK
- * Free mode - runs browser automation using camofox-browser HTTP API
+ * Free mode - runs browser automation using TurnstileSolver HTTP API
  * 
  * @author nich (@nichxbt)
  * @see https://xactions.app
  * @license MIT
  */
 
-import { CamofoxClient } from './camofox-client.js';
+import TurnstileClient from '../solver/turnstile-client.js';
 
 let client = null;
 
 async function getClient() {
   if (!client) {
-    client = new CamofoxClient('xactions_fb');
-    await client.createTab();
+    client = new TurnstileClient('xactions_fb');
+    await client.createSession();
   }
   return client;
 }
@@ -25,7 +25,7 @@ const randomDelay = () => sleep(1500 + Math.random() * 3000);
 
 export async function closeBrowser() {
   if (client) {
-    await client.closeTab();
+    await client.destroySession();
     client = null;
   }
 }
@@ -89,22 +89,31 @@ export async function fb_login({ cookie }) {
     if (!currentUrl.includes('facebook.com')) {
         await c.goto('https://www.facebook.com/');
     }
-    // Wait longer to allow Facebook React app to hydrate completely
-    await sleep(6000);
+    const getStatus = async () => {
+      return await c.evaluate(`() => {
+        const loginForm = document.querySelector('input[name="email"], input[type="password"]');
+        if (loginForm) return 'LOGIN_REQUIRED';
+        const searchExists = document.querySelector('[aria-label="Search Facebook"], [aria-label="بحث في فيسبوك"], [role="search"]');
+        if (searchExists) return 'SUCCESS';
+        const loggedInIndicator = document.querySelector('[aria-label="Your profile"], [aria-label="الحساب"], div[data-testid="user_menu"]');
+        if (loggedInIndicator || window.location.href.includes('facebook.com/home')) return 'SUCCESS';
+        
+        const continueBtn = Array.from(document.querySelectorAll('div[role="button"], button')).find(el => el.textContent.includes('Continue') || el.textContent.includes('متابعة'));
+        if (continueBtn) return 'CONTINUE_SCREEN';
 
-    let checkLogin = await c.evaluate(`() => {
-      const loginForm = document.querySelector('input[name="email"], input[type="password"]');
-      if (loginForm) return 'LOGIN_REQUIRED';
-      const searchExists = document.querySelector('[aria-label="Search Facebook"], [aria-label="بحث في فيسبوك"], [role="search"]');
-      if (searchExists) return 'SUCCESS';
-      const loggedInIndicator = document.querySelector('[aria-label="Your profile"], [aria-label="الحساب"], div[data-testid="user_menu"]');
-      if (loggedInIndicator || window.location.href.includes('facebook.com/home')) return 'SUCCESS';
-      
-      const continueBtn = Array.from(document.querySelectorAll('div[role="button"], button')).find(el => el.textContent.includes('Continue') || el.textContent.includes('متابعة'));
-      if (continueBtn) return 'CONTINUE_SCREEN';
+        return 'UNKNOWN:' + window.location.href + '|' + document.body.innerText.substring(0, 200);
+      }`);
+    };
 
-      return 'UNKNOWN:' + window.location.href + '|' + document.body.innerText.substring(0, 200);
-    }`);
+    // Fast polling instead of hardcoded 6s delay
+    let checkLogin = 'UNKNOWN';
+    for (let i = 0; i < 10; i++) {
+      checkLogin = await getStatus();
+      if (checkLogin === 'SUCCESS' || checkLogin === 'CONTINUE_SCREEN' || checkLogin === 'LOGIN_REQUIRED') {
+        break;
+      }
+      await sleep(500);
+    }
 
     if (checkLogin === 'CONTINUE_SCREEN') {
       console.log('[FB Auth] Found "Continue" screen, clicking continue button...');
@@ -112,18 +121,14 @@ export async function fb_login({ cookie }) {
         const continueBtn = Array.from(document.querySelectorAll('div[role="button"], button')).find(el => el.textContent.includes('Continue') || el.textContent.includes('متابعة'));
         if (continueBtn) continueBtn.click();
       }`);
-      await sleep(6000); // Wait for potential login navigation
       
-      // Re-verify login status
-      checkLogin = await c.evaluate(`() => {
-        const loginForm = document.querySelector('input[name="email"], input[type="password"]');
-        if (loginForm) return 'LOGIN_REQUIRED';
-        const searchExists = document.querySelector('[aria-label="Search Facebook"], [aria-label="بحث في فيسبوك"], [role="search"]');
-        if (searchExists) return 'SUCCESS';
-        const loggedInIndicator = document.querySelector('[aria-label="Your profile"], [aria-label="الحساب"], div[data-testid="user_menu"]');
-        if (loggedInIndicator || window.location.href.includes('facebook.com/home')) return 'SUCCESS';
-        return 'UNKNOWN:' + window.location.href + '|' + document.body.innerText.substring(0, 200);
-      }`);
+      for (let i = 0; i < 10; i++) {
+        await sleep(500);
+        checkLogin = await getStatus();
+        if (checkLogin === 'SUCCESS' || checkLogin === 'LOGIN_REQUIRED') {
+          break;
+        }
+      }
     }
 
     if (checkLogin === 'LOGIN_REQUIRED') throw new Error('Facebook is asking for login. Your cookies might be expired or invalid.');
@@ -417,10 +422,6 @@ export async function fb_post_timeline({ text, cookie }) {
         }`);
     }
 
-    // Attempt to take screenshot if endpoint exists, otherwise ignore
-    try {
-      await fetch(`${process.env.CAMOFOX_API_URL || 'http://localhost:9377'}/tabs/${c.tabId}/screenshot`);
-    } catch(e) {}
 
     if (!dialogClosed) {
         console.warn('[FB Post] Dialog is still visible after 3 attempts.');

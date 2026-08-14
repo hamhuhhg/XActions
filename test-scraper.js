@@ -1,18 +1,11 @@
-import puppeteer from 'puppeteer-extra';
-import StealthPlugin from 'puppeteer-extra-plugin-stealth';
-
-puppeteer.use(StealthPlugin());
+import TurnstileClient from './src/solver/turnstile-client.js';
 
 async function run() {
-    const browser = await puppeteer.launch({ headless: 'new' });
-    const page = await browser.newPage();
-    await page.setViewport({ width: 1280, height: 800 });
+    const page = new TurnstileClient('test_scraper');
+    await page.createSession();
 
     console.log("Navigating to https://x.com/usernameyem...");
-    await page.goto('https://x.com/usernameyem', { waitUntil: 'domcontentloaded', timeout: 30000 });
-
-    console.log("Waiting for primaryColumn or emptyState...");
-    await page.waitForSelector('[data-testid="primaryColumn"], [data-testid="emptyState"]', { timeout: 15000 }).catch(e => console.log("Timeout waiting for container"));
+    await page.goto('https://x.com/usernameyem', { timeout: 30000 });
 
     await new Promise(r => setTimeout(r, 5000));
 
@@ -45,9 +38,7 @@ async function run() {
         };
     });
 
-    console.log("Extracted Profile:", JSON.stringify(profile, null, 2));
-
-    await browser.close();
+    await page.destroySession();
 }
 
 run().catch(console.error);
