@@ -334,8 +334,9 @@ export async function x402Middleware(req, res, next) {
             console.log(`   📝 Audit: ${JSON.stringify(auditLog)}`);
             
             // Emit payment event for webhooks/monitoring
-            if (global.io) {
-              global.io.emit('x402:payment', auditLog);
+            if (globalThis.io || global.io) {
+              const io = globalThis.io || global.io;
+              io.emit('x402:payment', auditLog);
             }
             
             // Record payment for analytics

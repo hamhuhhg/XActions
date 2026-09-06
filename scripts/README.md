@@ -4,10 +4,14 @@ This folder contains ready-to-use scripts that you can copy-paste directly into 
 
 ## 📋 What's in This Folder?
 
-| Folder | Description |
-|--------|-------------|
-| `twitter/` | Scripts for Twitter/X automation (scraping, data extraction) |
-| `templates/` | Template files for creating your own scripts |
+| Folder / File | Description |
+|---------------|-------------|
+| `twitter/` | Ready-to-use browser scripts for Twitter/X automation |
+| `twitter_actions/` | Python Nodriver actions for automated operations |
+| `templates/` | Template files for creating your own DevTools scripts |
+| `safe_browser.js` | Turnstile-protected headless browser utility |
+| `verify-x402.js` | x402 payment verification script |
+
 
 ## 🚀 How to Use These Scripts
 

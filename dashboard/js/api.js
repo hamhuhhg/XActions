@@ -77,6 +77,9 @@
           if (acc.token) {
             fetchOptions.headers['x-auth-token'] = acc.token;
           }
+          if (acc.id) {
+            fetchOptions.headers['x-account-id'] = String(acc.id);
+          }
           let url = tool.endpoint;
           if (method === 'GET' || method === 'HEAD') {
             const searchParams = new URLSearchParams(params);
@@ -84,7 +87,10 @@
           } else {
             fetchOptions.body = JSON.stringify({
               scriptName: tool.scriptName,
-              options: params
+              options: {
+                ...params,
+                accountId: acc.id || undefined
+              }
             });
           }
           const response = await fetch(url, fetchOptions);

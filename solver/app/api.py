@@ -13,11 +13,11 @@ from fastapi.responses import JSONResponse
 from .config import VERSION, settings
 from .models import ProxyConfig, V1Request, V1Response
 from .sessions import _base_browser_args, session_manager
-from .solver import solve_request
+from .solver import solve_request, _get_cookies
 
 logger = logging.getLogger(__name__)
 
-# ── Monkeypatch zendriver Transaction.__call__ ───────────────────────────────
+# ── Monkeypatch zendriver Transaction.__call__ & Cookie.from_json ──────────────
 try:
     import zendriver.core.connection as zd_conn
     _orig_call = zd_conn.Transaction.__call__
@@ -34,6 +34,33 @@ try:
     logger.info("Successfully patched zendriver Transaction.__call__ to prevent InvalidStateError")
 except Exception as patch_err:
     logger.warning("Could not patch zendriver Transaction.__call__: %s", patch_err)
+
+try:
+    import zendriver.cdp.network as zd_net
+    @classmethod
+    def _patched_cookie_from_json(cls, json_dict):
+        return cls(
+            name=str(json_dict["name"]),
+            value=str(json_dict["value"]),
+            domain=str(json_dict["domain"]),
+            path=str(json_dict["path"]),
+            size=int(json_dict.get("size", len(json_dict.get("name", "")) + len(json_dict.get("value", "")))),
+            http_only=bool(json_dict.get("httpOnly", False)),
+            secure=bool(json_dict.get("secure", False)),
+            session=bool(json_dict.get("session", False)),
+            priority=zd_net.CookiePriority.from_json(json_dict["priority"]) if "priority" in json_dict else zd_net.CookiePriority.MEDIUM,
+            same_party=bool(json_dict.get("sameParty", False)),
+            source_scheme=zd_net.CookieSourceScheme.from_json(json_dict["sourceScheme"]) if "sourceScheme" in json_dict else zd_net.CookieSourceScheme.UNSET,
+            source_port=int(json_dict.get("sourcePort", 443)),
+            expires=float(json_dict["expires"]) if json_dict.get("expires", None) is not None else None,
+            same_site=zd_net.CookieSameSite.from_json(json_dict["sameSite"]) if json_dict.get("sameSite", None) is not None else None,
+            partition_key=zd_net.CookiePartitionKey.from_json(json_dict["partitionKey"]) if json_dict.get("partitionKey", None) is not None else None,
+            partition_key_opaque=bool(json_dict["partitionKeyOpaque"]) if json_dict.get("partitionKeyOpaque", None) is not None else None,
+        )
+    zd_net.Cookie.from_json = _patched_cookie_from_json
+    logger.info("Successfully patched zendriver Cookie.from_json to prevent KeyError('sameParty')")
+except Exception as cookie_patch_err:
+    logger.warning("Could not patch zendriver Cookie.from_json: %s", cookie_patch_err)
 
 
 _cached_user_agent: Optional[str] = None
@@ -162,6 +189,186 @@ async def _dispatch(req: V1Request, start_ts: int) -> Dict[str, Any]:
         return {
             "status": "ok",
             "message": f"Session {req.session} destroyed successfully.",
+            "startTimestamp": start_ts,
+            "endTimestamp": int(time.time() * 1000),
+            "version": VERSION,
+        }
+
+    if req.cmd in ("sessions.cookies", "sessions.get_cookies"):
+        if not req.session:
+            raise ValueError("session field is required for sessions.cookies")
+        try:
+            entry = await session_manager.get(req.session)
+        except (KeyError, RuntimeError) as e:
+            return {
+                "status": "error",
+                "message": f"Session {req.session} does not exist or has been closed.",
+                "cookies": [],
+                "startTimestamp": start_ts,
+                "endTimestamp": int(time.time() * 1000),
+                "version": VERSION,
+            }
+        cookies = []
+        try:
+            tab = getattr(entry.browser, "main_tab", None)
+            if not tab and hasattr(entry.browser, "tabs") and entry.browser.tabs:
+                tab = entry.browser.tabs[0]
+            if tab:
+                raw_cookies = await _get_cookies(tab)
+                cookies = [c.model_dump() for c in raw_cookies]
+        except Exception as e:
+            logger.warning("Error fetching cookies from session %s: %s", req.session, e)
+        return {
+            "status": "ok",
+            "message": "",
+            "cookies": cookies,
+            "startTimestamp": start_ts,
+            "endTimestamp": int(time.time() * 1000),
+            "version": VERSION,
+        }
+
+    if req.cmd in ("sessions.set_cookies", "sessions.import_cookies"):
+        if not req.session:
+            raise ValueError("session field is required for sessions.set_cookies")
+        try:
+            entry = await session_manager.get(req.session)
+        except (KeyError, RuntimeError) as e:
+            return {
+                "status": "error",
+                "message": f"Session {req.session} does not exist or has been closed.",
+                "startTimestamp": start_ts,
+                "endTimestamp": int(time.time() * 1000),
+                "version": VERSION,
+            }
+        tab = getattr(entry.browser, "main_tab", None)
+        if not tab and hasattr(entry.browser, "tabs") and entry.browser.tabs:
+            tab = entry.browser.tabs[0]
+        if not tab:
+            raise ValueError("No active tab in session to set cookies")
+        
+        count = 0
+        if req.cookies:
+            try:
+                await _set_cookies(tab, req.cookies)
+                count = len(req.cookies)
+            except Exception as e:
+                logger.warning("Error setting cookies via CDP in session %s: %s", req.session, e)
+        return {
+            "status": "ok",
+            "message": f"Successfully set {count} cookies",
+            "count": count,
+            "startTimestamp": start_ts,
+            "endTimestamp": int(time.time() * 1000),
+            "version": VERSION,
+        }
+
+    if req.cmd in ("sessions.evaluate", "sessions.eval"):
+        if not req.session:
+            raise ValueError("session field is required for sessions.evaluate")
+        try:
+            entry = await session_manager.get(req.session)
+        except (KeyError, RuntimeError) as e:
+            return {
+                "status": "error",
+                "message": f"Session {req.session} does not exist or has been closed.",
+                "result": None,
+                "startTimestamp": start_ts,
+                "endTimestamp": int(time.time() * 1000),
+                "version": VERSION,
+            }
+        tab = getattr(entry.browser, "main_tab", None)
+        if not tab and hasattr(entry.browser, "tabs") and entry.browser.tabs:
+            tab = entry.browser.tabs[0]
+        if not tab:
+            raise ValueError("No active tab in session to evaluate script")
+        script = req.postData or ""
+        try:
+            res = await tab.evaluate(script)
+        except Exception as e:
+            logger.warning("Error evaluating script in session %s: %s", req.session, e)
+            res = None
+        return {
+            "status": "ok",
+            "message": "",
+            "result": res,
+            "startTimestamp": start_ts,
+            "endTimestamp": int(time.time() * 1000),
+            "version": VERSION,
+        }
+
+    if req.cmd in ("sessions.type", "sessions.insert_text"):
+        if not req.session:
+            raise ValueError("session field is required for sessions.type")
+        try:
+            entry = await session_manager.get(req.session)
+        except (KeyError, RuntimeError) as e:
+            return {
+                "status": "error",
+                "message": f"Session {req.session} does not exist or has been closed.",
+                "result": None,
+                "startTimestamp": start_ts,
+                "endTimestamp": int(time.time() * 1000),
+                "version": VERSION,
+            }
+        tab = getattr(entry.browser, "main_tab", None)
+        if not tab and hasattr(entry.browser, "tabs") and entry.browser.tabs:
+            tab = entry.browser.tabs[0]
+        if not tab:
+            raise ValueError("No active tab in session to type text")
+        text_to_insert = req.postData or ""
+        success = False
+        try:
+            import zendriver.cdp.input_ as zd_input
+            await tab.send(zd_input.insert_text(text=text_to_insert))
+            success = True
+        except Exception as e:
+            logger.warning("Error typing in session %s: %s", req.session, e)
+        return {
+            "status": "ok",
+            "message": "",
+            "result": success,
+            "startTimestamp": start_ts,
+            "endTimestamp": int(time.time() * 1000),
+            "version": VERSION,
+        }
+
+    if req.cmd in ("sessions.send_file", "sessions.upload_file"):
+        if not req.session:
+            raise ValueError("session field is required for sessions.send_file")
+        try:
+            entry = await session_manager.get(req.session)
+        except (KeyError, RuntimeError) as e:
+            return {
+                "status": "error",
+                "message": f"Session {req.session} does not exist or has been closed.",
+                "result": None,
+                "startTimestamp": start_ts,
+                "endTimestamp": int(time.time() * 1000),
+                "version": VERSION,
+            }
+        tab = getattr(entry.browser, "main_tab", None)
+        if not tab and hasattr(entry.browser, "tabs") and entry.browser.tabs:
+            tab = entry.browser.tabs[0]
+        if not tab:
+            raise ValueError("No active tab in session to send file")
+        file_path = req.postData or ""
+        selector = req.turnstile_input_name or 'input[type="file"]'
+        success = False
+        try:
+            elem = await tab.select(selector, timeout=5)
+            if not elem and selector != 'input[type="file"]':
+                elem = await tab.select('input[type="file"]', timeout=3)
+            if elem:
+                await elem.send_file(file_path)
+                success = True
+            else:
+                logger.warning("No file input found matching %s in session %s", selector, req.session)
+        except Exception as e:
+            logger.warning("Error sending file in session %s: %s", req.session, e)
+        return {
+            "status": "ok",
+            "message": "",
+            "result": success,
             "startTimestamp": start_ts,
             "endTimestamp": int(time.time() * 1000),
             "version": VERSION,

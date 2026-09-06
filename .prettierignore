@@ -1,0 +1,10 @@
+node_modules
+archive
+dist
+build
+.git
+.vscode
+prisma/migrations
+uploads
+*.min.js
+package-lock.json

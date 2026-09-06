@@ -21,7 +21,16 @@
     return;
   }
 
-  const { log, sleep, randomDelay, scrollBy, clickElement, waitForElement, storage, rateLimit, SELECTORS } = window.XActions.Core;
+  const {
+    log,
+    sleep,
+    randomDelay,
+    scrollBy,
+    clickElement,
+    waitForElement,
+    storage,
+    SELECTORS,
+  } = window.XActions.Core;
 
   // ============================================
   // GROWTH STRATEGY CONFIGURATION
@@ -29,46 +38,42 @@
   const STRATEGY = {
     // -------- TARGETING --------
     // Keywords to search for (niche targeting)
-    KEYWORDS: [
-      'web3 developer',
-      'solidity engineer', 
-      'defi builder',
-    ],
-    
+    KEYWORDS: ['web3 developer', 'solidity engineer', 'defi builder'],
+
     // Accounts to engage with (their followers are your targets)
     TARGET_ACCOUNTS: [
       // 'vitalikbuterin',
       // 'elonmusk',
     ],
-    
+
     // -------- ACTIONS --------
     ACTIONS: {
-      FOLLOW: true,              // Follow users from keyword search
-      LIKE: true,                // Like posts in your feed
-      UNFOLLOW: true,            // Unfollow non-followers after grace period
+      FOLLOW: true, // Follow users from keyword search
+      LIKE: true, // Like posts in your feed
+      UNFOLLOW: true, // Unfollow non-followers after grace period
     },
-    
+
     // -------- LIMITS (per session) --------
     LIMITS: {
       FOLLOWS: 20,
       LIKES: 30,
       UNFOLLOWS: 15,
     },
-    
+
     // -------- TIMING --------
     TIMING: {
-      UNFOLLOW_AFTER_DAYS: 3,    // Days to wait before unfollowing
+      UNFOLLOW_AFTER_DAYS: 3, // Days to wait before unfollowing
       DELAY_BETWEEN_ACTIONS: 3000,
       SESSION_DURATION_MINUTES: 30,
     },
-    
+
     // -------- FILTERS --------
     FILTERS: {
       MIN_FOLLOWERS: 50,
       MAX_FOLLOWERS: 50000,
       MUST_HAVE_BIO: true,
       SKIP_PRIVATE: true,
-      LANGUAGE: null,            // null = any, or 'en', 'es', etc.
+      LANGUAGE: null, // null = any, or 'en', 'es', etc.
     },
   };
 
@@ -130,7 +135,7 @@
     state.follows++;
     tracked.followed.set(username, { at: Date.now(), source: 'growth' });
     saveTracked();
-    
+
     log(`Followed @${username} (${state.follows}/${STRATEGY.LIMITS.FOLLOWS})`, 'success');
     return true;
   };
@@ -153,7 +158,7 @@
     state.likes++;
     tracked.liked.add(tweetId);
     saveTracked();
-    
+
     log(`Liked tweet (${state.likes}/${STRATEGY.LIMITS.LIKES})`, 'success');
     return true;
   };
@@ -184,14 +189,14 @@
 
     await clickElement(unfollowBtn);
     await sleep(500);
-    
+
     const confirmBtn = await waitForElement(SELECTORS.confirmButton, 2000);
     if (confirmBtn) await clickElement(confirmBtn);
-    
+
     state.unfollows++;
     tracked.followed.delete(username);
     saveTracked();
-    
+
     log(`Unfollowed @${username} (${state.unfollows}/${STRATEGY.LIMITS.UNFOLLOWS})`, 'action');
     return true;
   };
@@ -199,7 +204,7 @@
   // ============================================
   // PHASES
   // ============================================
-  
+
   // Phase 1: Search and Follow
   const phaseFollow = async () => {
     if (!STRATEGY.ACTIONS.FOLLOW) return;
@@ -216,15 +221,18 @@
       let scrolls = 0;
       while (scrolls < 10 && checkLimits().canFollow && state.isRunning) {
         const cells = document.querySelectorAll(SELECTORS.userCell);
-        
+
         for (const cell of cells) {
           if (!checkLimits().canFollow) break;
-          
+
           // Check if already following
           if (cell.querySelector(SELECTORS.unfollowButton)) continue;
-          
+
           await doFollow(cell);
-          await randomDelay(STRATEGY.TIMING.DELAY_BETWEEN_ACTIONS, STRATEGY.TIMING.DELAY_BETWEEN_ACTIONS * 1.5);
+          await randomDelay(
+            STRATEGY.TIMING.DELAY_BETWEEN_ACTIONS,
+            STRATEGY.TIMING.DELAY_BETWEEN_ACTIONS * 1.5
+          );
         }
 
         scrollBy(600);
@@ -245,13 +253,16 @@
     let scrolls = 0;
     while (scrolls < 20 && checkLimits().canLike && state.isRunning) {
       const tweets = document.querySelectorAll(SELECTORS.tweet);
-      
+
       for (const tweet of tweets) {
         if (!checkLimits().canLike) break;
         if (tweet.querySelector(SELECTORS.unlikeButton)) continue; // Already liked
-        
+
         await doLike(tweet);
-        await randomDelay(STRATEGY.TIMING.DELAY_BETWEEN_ACTIONS, STRATEGY.TIMING.DELAY_BETWEEN_ACTIONS * 1.5);
+        await randomDelay(
+          STRATEGY.TIMING.DELAY_BETWEEN_ACTIONS,
+          STRATEGY.TIMING.DELAY_BETWEEN_ACTIONS * 1.5
+        );
       }
 
       scrollBy(600);
@@ -271,12 +282,16 @@
       return;
     }
 
-    log(`Found ${expired.length} users past ${STRATEGY.TIMING.UNFOLLOW_AFTER_DAYS}-day threshold`, 'info');
+    log(
+      `Found ${expired.length} users past ${STRATEGY.TIMING.UNFOLLOW_AFTER_DAYS}-day threshold`,
+      'info'
+    );
 
     // Go to following page
-    const username = document.querySelector('[data-testid="SideNav_AccountSwitcher_Button"]')
+    const username = document
+      .querySelector('[data-testid="SideNav_AccountSwitcher_Button"]')
       ?.textContent?.match(/@(\w+)/)?.[1];
-    
+
     if (username) {
       window.location.href = `https://x.com/${username}/following`;
       await sleep(3000);
@@ -286,16 +301,19 @@
 
       while (scrolls < 50 && checkLimits().canUnfollow && state.isRunning) {
         const cells = document.querySelectorAll(SELECTORS.userCell);
-        
+
         for (const cell of cells) {
           if (!checkLimits().canUnfollow) break;
-          
+
           const link = cell.querySelector('a[href^="/"]');
           const cellUser = link?.getAttribute('href')?.replace('/', '').toLowerCase();
-          
+
           if (cellUser && expiredSet.has(cellUser)) {
             await doUnfollow(cell, cellUser);
-            await randomDelay(STRATEGY.TIMING.DELAY_BETWEEN_ACTIONS, STRATEGY.TIMING.DELAY_BETWEEN_ACTIONS * 1.5);
+            await randomDelay(
+              STRATEGY.TIMING.DELAY_BETWEEN_ACTIONS,
+              STRATEGY.TIMING.DELAY_BETWEEN_ACTIONS * 1.5
+            );
           }
         }
 
@@ -329,11 +347,11 @@
 
     // Run phases
     await phaseFollow();
-    
+
     if (state.isRunning && !isSessionExpired()) {
       await phaseLike();
     }
-    
+
     if (state.isRunning && !isSessionExpired()) {
       await phaseUnfollow();
     }

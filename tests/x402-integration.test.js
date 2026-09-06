@@ -10,7 +10,7 @@
  * @author nichxbt
  */
 
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import request from 'supertest';
 import { 
   createMockPayment, 
@@ -21,18 +21,6 @@ import {
 
 // Test against local server or specify TEST_API_URL
 const API_URL = process.env.TEST_API_URL || 'http://localhost:3001';
-
-// Check if server is running before tests
-async function isServerRunning() {
-  try {
-    const res = await fetch(`${API_URL}/health`, { 
-      signal: AbortSignal.timeout(1000) 
-    });
-    return res.ok;
-  } catch {
-    return false;
-  }
-}
 
 // Skip tests if server isn't running (for CI without server)
 const describeWithServer = process.env.CI ? describe.skip : describe;

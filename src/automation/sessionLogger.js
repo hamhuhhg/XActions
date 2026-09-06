@@ -24,13 +24,13 @@
   const CONFIG = {
     // How long to keep logs (days)
     LOG_RETENTION_DAYS: 30,
-    
+
     // Save to localStorage frequency
     SAVE_INTERVAL_SECONDS: 30,
-    
+
     // Actions to track
     TRACK_ACTIONS: ['follow', 'unfollow', 'like', 'unlike', 'comment', 'retweet', 'dm'],
-    
+
     // Export format: 'json' or 'csv'
     EXPORT_FORMAT: 'json',
   };
@@ -40,7 +40,7 @@
   // ============================================
   const KEY_SESSIONS = 'xactions_sessions';
   const KEY_CURRENT = 'xactions_current_session';
-  
+
   const currentSession = {
     id: Date.now().toString(36) + Math.random().toString(36).substr(2, 5),
     startTime: Date.now(),
@@ -72,17 +72,17 @@
       details: details,
       page: window.location.href,
     };
-    
+
     currentSession.actions.push(entry);
-    
+
     // Update stats
     if (action in currentSession.stats) {
       currentSession.stats[action + 's']++;
     }
-    
+
     // Save periodically
     saveSession();
-    
+
     return entry;
   };
 
@@ -95,12 +95,12 @@
       context: context,
       page: window.location.href,
     };
-    
+
     currentSession.actions.push(entry);
     currentSession.stats.errors++;
-    
+
     saveSession();
-    
+
     return entry;
   };
 
@@ -114,20 +114,20 @@
   const endSession = () => {
     currentSession.endTime = Date.now();
     currentSession.duration = currentSession.endTime - currentSession.startTime;
-    
+
     // Move to sessions list
     const sessions = storage.get(KEY_SESSIONS) || [];
     sessions.push(currentSession);
-    
+
     // Clean old sessions
-    const cutoff = Date.now() - (CONFIG.LOG_RETENTION_DAYS * 24 * 60 * 60 * 1000);
-    const filtered = sessions.filter(s => s.startTime > cutoff);
-    
+    const cutoff = Date.now() - CONFIG.LOG_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+    const filtered = sessions.filter((s) => s.startTime > cutoff);
+
     storage.set(KEY_SESSIONS, filtered);
     storage.set(KEY_CURRENT, null);
-    
+
     log(`Session ended. Duration: ${formatDuration(currentSession.duration)}`, 'info');
-    
+
     return currentSession;
   };
 
@@ -141,22 +141,22 @@
   const getStats = (period = 'all') => {
     const sessions = getSessions();
     let filteredSessions = sessions;
-    
+
     const now = Date.now();
     if (period === 'today') {
       const start = new Date().setHours(0, 0, 0, 0);
-      filteredSessions = sessions.filter(s => s.startTime >= start);
+      filteredSessions = sessions.filter((s) => s.startTime >= start);
     } else if (period === 'week') {
-      const start = now - (7 * 24 * 60 * 60 * 1000);
-      filteredSessions = sessions.filter(s => s.startTime >= start);
+      const start = now - 7 * 24 * 60 * 60 * 1000;
+      filteredSessions = sessions.filter((s) => s.startTime >= start);
     } else if (period === 'month') {
-      const start = now - (30 * 24 * 60 * 60 * 1000);
-      filteredSessions = sessions.filter(s => s.startTime >= start);
+      const start = now - 30 * 24 * 60 * 60 * 1000;
+      filteredSessions = sessions.filter((s) => s.startTime >= start);
     }
-    
+
     // Include current session
     filteredSessions = [...filteredSessions, currentSession];
-    
+
     const totals = {
       sessions: filteredSessions.length,
       follows: 0,
@@ -169,7 +169,7 @@
       totalActions: 0,
       totalDuration: 0,
     };
-    
+
     for (const session of filteredSessions) {
       if (session.stats) {
         totals.follows += session.stats.follows || 0;
@@ -187,51 +187,51 @@
         totals.totalDuration += session.duration;
       }
     }
-    
+
     // Net follow change
     totals.netFollows = totals.follows - totals.unfollows;
-    
+
     return totals;
   };
 
   const getDailyStats = () => {
     const sessions = [...getSessions(), currentSession];
     const dailyStats = {};
-    
+
     for (const session of sessions) {
       if (!session.actions) continue;
-      
+
       for (const action of session.actions) {
         const date = new Date(action.timestamp).toLocaleDateString();
-        
+
         if (!dailyStats[date]) {
           dailyStats[date] = { follows: 0, unfollows: 0, likes: 0, comments: 0 };
         }
-        
+
         if (action.action === 'follow') dailyStats[date].follows++;
         if (action.action === 'unfollow') dailyStats[date].unfollows++;
         if (action.action === 'like') dailyStats[date].likes++;
         if (action.action === 'comment') dailyStats[date].comments++;
       }
     }
-    
+
     return dailyStats;
   };
 
   const getMostFollowed = (limit = 10) => {
     const sessions = [...getSessions(), currentSession];
     const followCounts = {};
-    
+
     for (const session of sessions) {
       if (!session.actions) continue;
-      
+
       for (const action of session.actions) {
         if (action.action === 'follow' && action.target) {
           followCounts[action.target] = (followCounts[action.target] || 0) + 1;
         }
       }
     }
-    
+
     return Object.entries(followCounts)
       .sort((a, b) => b[1] - a[1])
       .slice(0, limit);
@@ -244,7 +244,7 @@
     const seconds = Math.floor(ms / 1000);
     const minutes = Math.floor(seconds / 60);
     const hours = Math.floor(minutes / 60);
-    
+
     if (hours > 0) {
       return `${hours}h ${minutes % 60}m`;
     } else if (minutes > 0) {
@@ -259,8 +259,9 @@
   // ============================================
   const printReport = (period = 'all') => {
     const stats = getStats(period);
-    const periodLabel = period === 'all' ? 'All Time' : period.charAt(0).toUpperCase() + period.slice(1);
-    
+    const periodLabel =
+      period === 'all' ? 'All Time' : period.charAt(0).toUpperCase() + period.slice(1);
+
     console.log(`
 ╔═══════════════════════════════════════════════════════════╗
 ║  📊 XActions Analytics - ${periodLabel.padEnd(10)}                     ║
@@ -282,25 +283,25 @@
   const printDailyReport = () => {
     const daily = getDailyStats();
     const dates = Object.keys(daily).sort().reverse().slice(0, 7);
-    
+
     console.log('\n📅 Daily Activity (Last 7 Days):');
     console.log('─'.repeat(50));
     console.log('Date           | Follows | Unfollows | Likes | Comments');
     console.log('─'.repeat(50));
-    
+
     for (const date of dates) {
       const d = daily[date];
       console.log(
         `${date.padEnd(14)} | ${String(d.follows).padEnd(7)} | ${String(d.unfollows).padEnd(9)} | ${String(d.likes).padEnd(5)} | ${d.comments}`
       );
     }
-    
+
     console.log('─'.repeat(50));
   };
 
   const printCurrentSession = () => {
     const duration = Date.now() - currentSession.startTime;
-    
+
     console.log(`
 ╔═══════════════════════════════════════════════════════════╗
 ║  📍 Current Session                                       ║
@@ -321,69 +322,71 @@
   // ============================================
   const exportLogs = (period = 'all') => {
     let sessions = getSessions();
-    
+
     const now = Date.now();
     if (period === 'today') {
       const start = new Date().setHours(0, 0, 0, 0);
-      sessions = sessions.filter(s => s.startTime >= start);
+      sessions = sessions.filter((s) => s.startTime >= start);
     } else if (period === 'week') {
-      const start = now - (7 * 24 * 60 * 60 * 1000);
-      sessions = sessions.filter(s => s.startTime >= start);
+      const start = now - 7 * 24 * 60 * 60 * 1000;
+      sessions = sessions.filter((s) => s.startTime >= start);
     }
-    
+
     // Include current session
     sessions = [...sessions, currentSession];
-    
+
     const data = {
       exportDate: new Date().toISOString(),
       period: period,
       sessions: sessions,
       summary: getStats(period),
     };
-    
+
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
-    
+
     const a = document.createElement('a');
     a.href = url;
     a.download = `xactions-logs-${period}-${Date.now()}.json`;
     a.click();
-    
+
     URL.revokeObjectURL(url);
-    
+
     log(`Exported ${sessions.length} sessions`, 'success');
   };
 
   const exportCSV = () => {
     const sessions = [...getSessions(), currentSession];
-    
+
     const rows = ['timestamp,action,target,page'];
-    
+
     for (const session of sessions) {
       if (!session.actions) continue;
-      
+
       for (const action of session.actions) {
         if (action.type === 'error') continue;
-        
-        rows.push([
-          new Date(action.timestamp).toISOString(),
-          action.action,
-          action.target || '',
-          action.page || '',
-        ].join(','));
+
+        rows.push(
+          [
+            new Date(action.timestamp).toISOString(),
+            action.action,
+            action.target || '',
+            action.page || '',
+          ].join(',')
+        );
       }
     }
-    
+
     const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
-    
+
     const a = document.createElement('a');
     a.href = url;
     a.download = `xactions-logs-${Date.now()}.csv`;
     a.click();
-    
+
     URL.revokeObjectURL(url);
-    
+
     log('Exported logs to CSV', 'success');
   };
 
@@ -419,6 +422,7 @@
     getSessions,
     getStats,
     getDailyStats,
+    getMostFollowed,
     printReport,
     printDailyReport,
     printCurrentSession,

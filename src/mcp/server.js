@@ -2,20 +2,20 @@
 /**
  * XActions MCP Server
  * Model Context Protocol server for AI agents (Claude, GPT, etc.)
- * 
+ *
  * This enables AI assistants to automate X/Twitter tasks directly.
- * 
+ *
  * Modes:
  * - LOCAL (default): Free, uses Puppeteer for browser automation
  * - REMOTE: Paid via x402 protocol, uses XActions cloud API
- * 
+ *
  * Environment Variables:
  * - XACTIONS_MODE: 'local' (default) or 'remote'
  * - XACTIONS_API_URL: API URL for remote mode (default: https://api.xactions.app)
  * - X402_PRIVATE_KEY: Wallet private key for x402 payments (remote mode)
  * - X402_NETWORK: 'base-sepolia' (testnet, default) or 'base' (mainnet)
  * - XACTIONS_SESSION_COOKIE: X/Twitter auth_token cookie
- * 
+ *
  * @author nich (@nichxbt) - https://github.com/nirholas
  * @see https://xactions.app
  * @license MIT
@@ -23,10 +23,7 @@
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import {
-  CallToolRequestSchema,
-  ListToolsRequestSchema,
-} from '@modelcontextprotocol/sdk/types.js';
+import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
 // ============================================================================
 // Configuration
@@ -48,10 +45,11 @@ let remoteClient = null;
 // Tool Definitions
 // ============================================================================
 
-const TOOLS = [
+export const TOOLS = [
   {
     name: 'x_login',
-    description: 'Login to X/Twitter using a session cookie (auth_token). Required before some operations.',
+    description:
+      'Login to X/Twitter using a session cookie (auth_token). Required before some operations.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -65,7 +63,8 @@ const TOOLS = [
   },
   {
     name: 'fb_login',
-    description: 'Login to Facebook using c_user and xs cookies. Required before Facebook operations.',
+    description:
+      'Login to Facebook using c_user and xs cookies. Required before Facebook operations.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -79,7 +78,8 @@ const TOOLS = [
   },
   {
     name: 'x_get_profile',
-    description: 'Get profile information for an X/Twitter user including bio, follower count, etc.',
+    description:
+      'Get profile information for an X/Twitter user including bio, follower count, etc.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -93,7 +93,8 @@ const TOOLS = [
   },
   {
     name: 'fb_get_profile',
-    description: 'Get basic profile info (name, bio) from a Facebook user or page URL. Requires fb_login first.',
+    description:
+      'Get basic profile info (name, bio) from a Facebook user or page URL. Requires fb_login first.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -153,6 +154,36 @@ const TOOLS = [
         },
       },
       required: ['postUrl', 'text'],
+    },
+  },
+  {
+    name: 'fb_warmup_accounts',
+    description:
+      'Run an account warm-up and engagement campaign on Facebook. Likes a randomized number of posts on the feed with human-like delays.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        likesCount: {
+          type: 'number',
+          description: 'Base number of likes to perform for the account (default: 5)',
+        },
+        variance: {
+          type: 'number',
+          description: 'Random variance (±) to increase or decrease likes per account (default: 2)',
+        },
+        delayMin: {
+          type: 'number',
+          description: 'Minimum delay in seconds between likes (default: 5)',
+        },
+        delayMax: {
+          type: 'number',
+          description: 'Maximum delay in seconds between likes (default: 12)',
+        },
+        feedUrl: {
+          type: 'string',
+          description: 'Target page/feed URL (optional, defaults to Facebook home feed)',
+        },
+      },
     },
   },
   {
@@ -271,7 +302,7 @@ const TOOLS = [
   },
   {
     name: 'x_unfollow_non_followers',
-    description: 'Bulk unfollow accounts that don\'t follow you back.',
+    description: "Bulk unfollow accounts that don't follow you back.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -400,13 +431,15 @@ const TOOLS = [
   },
   {
     name: 'x_get_trends',
-    description: 'Get current trending topics/hashtags for a specific country or worldwide. Useful for content strategy.',
+    description:
+      'Get current trending topics/hashtags for a specific country or worldwide. Useful for content strategy.',
     inputSchema: {
       type: 'object',
       properties: {
         country: {
           type: 'string',
-          description: 'Country name (e.g. "worldwide", "Saudi Arabia", "United States", "Egypt"). Default: worldwide',
+          description:
+            'Country name (e.g. "worldwide", "Saudi Arabia", "United States", "Egypt"). Default: worldwide',
         },
         limit: {
           type: 'number',
@@ -432,7 +465,8 @@ const TOOLS = [
   // ── Phase 2: Campaign Management ──────────────────────────────────────────
   {
     name: 'x_create_campaign',
-    description: 'Create a new automation campaign with tweets, replies, and/or quotes. Store it in the database for execution.',
+    description:
+      'Create a new automation campaign with tweets, replies, and/or quotes. Store it in the database for execution.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -440,7 +474,11 @@ const TOOLS = [
         tweets: {
           type: 'array',
           description: 'Array of tweets to post. Each: { text, media? }',
-          items: { type: 'object', properties: { text: { type: 'string' }, media: { type: 'string' } }, required: ['text'] },
+          items: {
+            type: 'object',
+            properties: { text: { type: 'string' }, media: { type: 'string' } },
+            required: ['text'],
+          },
         },
         fb_posts: {
           type: 'array',
@@ -450,14 +488,25 @@ const TOOLS = [
         replies: {
           type: 'array',
           description: 'Array of replies. Each: { target (tweet URL or ID), text, media? }',
-          items: { type: 'object', properties: { target: { type: 'string' }, text: { type: 'string' } }, required: ['target', 'text'] },
+          items: {
+            type: 'object',
+            properties: { target: { type: 'string' }, text: { type: 'string' } },
+            required: ['target', 'text'],
+          },
         },
         quotes: {
           type: 'array',
           description: 'Array of quote-tweets. Each: { target (tweet URL or ID), text, media? }',
-          items: { type: 'object', properties: { target: { type: 'string' }, text: { type: 'string' } }, required: ['target', 'text'] },
+          items: {
+            type: 'object',
+            properties: { target: { type: 'string' }, text: { type: 'string' } },
+            required: ['target', 'text'],
+          },
         },
-        schedule: { type: 'string', description: 'ISO date string for scheduled run (optional, e.g. "2025-03-01T09:00:00Z")' },
+        schedule: {
+          type: 'string',
+          description: 'ISO date string for scheduled run (optional, e.g. "2025-03-01T09:00:00Z")',
+        },
         accountIds: {
           type: 'array',
           description: 'Account IDs to run this campaign on (from x_list_accounts)',
@@ -483,11 +532,15 @@ const TOOLS = [
   },
   {
     name: 'x_run_campaign',
-    description: 'Execute a campaign now. Runs all configured tweets/replies/quotes on the campaign accounts.',
+    description:
+      'Execute a campaign now. Runs all configured tweets/replies/quotes on the campaign accounts.',
     inputSchema: {
       type: 'object',
       properties: {
-        campaignId: { type: 'string', description: 'Campaign ID (from x_list_campaigns or x_create_campaign result)' },
+        campaignId: {
+          type: 'string',
+          description: 'Campaign ID (from x_list_campaigns or x_create_campaign result)',
+        },
       },
       required: ['campaignId'],
     },
@@ -506,13 +559,20 @@ const TOOLS = [
   // ── Phase 3: Multi-Account Management ─────────────────────────────────────
   {
     name: 'x_add_account',
-    description: 'Save an X/Twitter account (auth_token cookie) to the system for campaigns and multi-account operations.',
+    description:
+      'Save an X/Twitter account (auth_token cookie) to the system for campaigns and multi-account operations.',
     inputSchema: {
       type: 'object',
       properties: {
-        name: { type: 'string', description: 'Friendly name for the account (e.g. "main", "news_account")' },
+        name: {
+          type: 'string',
+          description: 'Friendly name for the account (e.g. "main", "news_account")',
+        },
         cookie: { type: 'string', description: 'auth_token cookie value from X.com' },
-        country: { type: 'string', description: 'Country/region label for organization (optional)' },
+        country: {
+          type: 'string',
+          description: 'Country/region label for organization (optional)',
+        },
       },
       required: ['name', 'cookie'],
     },
@@ -543,7 +603,10 @@ const TOOLS = [
       type: 'object',
       properties: {
         name: { type: 'string', description: 'Friendly name for the account' },
-        cookie: { type: 'string', description: 'JSON string containing {"c_user":"...","xs":"..."}' },
+        cookie: {
+          type: 'string',
+          description: 'JSON string containing {"c_user":"...","xs":"..."}',
+        },
         country: { type: 'string', description: 'Country/region label' },
       },
       required: ['name', 'cookie'],
@@ -581,18 +644,23 @@ const TOOLS = [
   },
   {
     name: 'x_get_thread',
-    description: 'Unroll and scrape a full tweet thread by its URL. Returns all tweets in chronological order.',
+    description:
+      'Unroll and scrape a full tweet thread by its URL. Returns all tweets in chronological order.',
     inputSchema: {
       type: 'object',
       properties: {
-        tweetUrl: { type: 'string', description: 'URL of any tweet in the thread (e.g. https://x.com/user/status/123)' },
+        tweetUrl: {
+          type: 'string',
+          description: 'URL of any tweet in the thread (e.g. https://x.com/user/status/123)',
+        },
       },
       required: ['tweetUrl'],
     },
   },
   {
     name: 'x_get_viral_tweets',
-    description: 'Find high-engagement/viral tweets for a search query. Sorted by likes, retweets, or total engagement.',
+    description:
+      'Find high-engagement/viral tweets for a search query. Sorted by likes, retweets, or total engagement.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -635,7 +703,6 @@ async function initializeBackend() {
       sessionCookie: SESSION_COOKIE,
       network: X402_NETWORK,
     });
-
   } else {
     console.error('💻 XActions MCP Server: Local mode (free)');
     console.error('   Using Puppeteer for browser automation');
@@ -731,7 +798,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         },
       ],
     };
-
   } catch (error) {
     // Handle x402 payment errors specially
     if (error.code === 'PAYMENT_REQUIRED') {
@@ -739,16 +805,21 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         content: [
           {
             type: 'text',
-            text: JSON.stringify({
-              error: 'Payment required',
-              message: error.message,
-              price: error.price,
-              network: error.network || X402_NETWORK,
-              hint: 'Set X402_PRIVATE_KEY with a funded wallet to enable automatic payments',
-              faucet: X402_NETWORK === 'base-sepolia'
-                ? 'Get testnet USDC: https://faucet.circle.com/'
-                : 'Ensure wallet has USDC on Base',
-            }, null, 2),
+            text: JSON.stringify(
+              {
+                error: 'Payment required',
+                message: error.message,
+                price: error.price,
+                network: error.network || X402_NETWORK,
+                hint: 'Set X402_PRIVATE_KEY with a funded wallet to enable automatic payments',
+                faucet:
+                  X402_NETWORK === 'base-sepolia'
+                    ? 'Get testnet USDC: https://faucet.circle.com/'
+                    : 'Ensure wallet has USDC on Base',
+              },
+              null,
+              2
+            ),
           },
         ],
         isError: true,
@@ -760,11 +831,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         content: [
           {
             type: 'text',
-            text: JSON.stringify({
-              error: 'Payment failed',
-              message: error.message,
-              hint: 'Check wallet balance and try again',
-            }, null, 2),
+            text: JSON.stringify(
+              {
+                error: 'Payment failed',
+                message: error.message,
+                hint: 'Check wallet balance and try again',
+              },
+              null,
+              2
+            ),
           },
         ],
         isError: true,
@@ -776,10 +851,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       content: [
         {
           type: 'text',
-          text: JSON.stringify({
-            error: error.message,
-            ...(process.env.DEBUG ? { stack: error.stack } : {}),
-          }, null, 2),
+          text: JSON.stringify(
+            {
+              error: error.message,
+              ...(process.env.DEBUG ? { stack: error.stack } : {}),
+            },
+            null,
+            2
+          ),
         },
       ],
       isError: true,
@@ -828,10 +907,16 @@ async function main() {
   console.error('');
 }
 
-main().catch((error) => {
-  console.error('❌ Fatal error:', error.message);
-  if (process.env.DEBUG) {
-    console.error(error.stack);
-  }
-  process.exit(1);
-});
+// Execute when run directly, bypass when imported in test environment
+if (process.env.NODE_ENV !== 'test') {
+  main().catch((error) => {
+    console.error('❌ Fatal error:', error.message);
+    if (process.env.DEBUG) {
+      console.error(error.stack);
+    }
+    process.exit(1);
+  });
+}
+
+export { server };
+export default server;

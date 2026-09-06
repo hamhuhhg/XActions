@@ -2,43 +2,35 @@
 /**
  * XActions Local Tools (Puppeteer-based)
  * Free mode - runs browser automation locally
- * 
+ *
  * Extracted from original server.js for modular architecture
- * 
+ *
  * @author nich (@nichxbt) - https://github.com/nirholas
  * @see https://xactions.app
  * @license MIT
  */
 
-import TurnstileClient from '../solver/turnstile-client.js';
+import { sleep, randomDelay, BrowserManager } from '../core/index.js';
 
-let client = null;
+let manager = null;
 
 /**
- * Initialize TurnstileClient (duck-types as browser and page)
+ * Initialize unified BrowserManager session
  */
 async function initBrowser() {
-  if (!client) {
-    client = new TurnstileClient('xactions_local');
-    await client.createSession();
+  if (!manager) {
+    manager = new BrowserManager({ sessionId: 'xactions_local' });
   }
-  // Return the client as both browser and page for compatibility
-  return { browser: client, page: client };
+  return await manager.launch();
 }
-
-/**
- * Human-like delay
- */
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const randomDelay = () => sleep(1000 + Math.random() * 2000);
 
 /**
  * Close browser (for cleanup)
  */
 export async function closeBrowser() {
-  if (client) {
-    await client.closeTab();
-    client = null;
+  if (manager) {
+    await manager.close();
+    manager = null;
   }
 }
 
@@ -75,7 +67,9 @@ export async function x_get_profile({ username }) {
     const joinedEl = document.querySelector('[data-testid="UserJoinDate"]');
 
     const followingEl = document.querySelector('a[href$="/following"] span');
-    const followersEl = document.querySelector('a[href$="/verified_followers"] span, a[href$="/followers"] span');
+    const followersEl = document.querySelector(
+      'a[href$="/verified_followers"] span, a[href$="/followers"] span'
+    );
 
     return {
       name: nameEl?.textContent?.split('@')[0]?.trim() || null,
@@ -104,16 +98,18 @@ export async function x_get_followers({ username, limit = 100 }) {
   while (followers.size < limit && retries < 10) {
     const users = await page.evaluate(() => {
       const cells = document.querySelectorAll('[data-testid="UserCell"]');
-      return Array.from(cells).map((cell) => {
-        const link = cell.querySelector('a[href^="/"]');
-        const nameEl = cell.querySelector('[dir="ltr"] > span');
-        const bioEl = cell.querySelector('[data-testid="UserDescription"]');
-        return {
-          username: link?.href?.split('/')[3] || null,
-          name: nameEl?.textContent || null,
-          bio: bioEl?.textContent || null,
-        };
-      }).filter(u => u.username);
+      return Array.from(cells)
+        .map((cell) => {
+          const link = cell.querySelector('a[href^="/"]');
+          const nameEl = cell.querySelector('[dir="ltr"] > span');
+          const bioEl = cell.querySelector('[data-testid="UserDescription"]');
+          return {
+            username: link?.href?.split('/')[3] || null,
+            name: nameEl?.textContent || null,
+            bio: bioEl?.textContent || null,
+          };
+        })
+        .filter((u) => u.username);
     });
 
     const prevSize = followers.size;
@@ -126,7 +122,9 @@ export async function x_get_followers({ username, limit = 100 }) {
     await randomDelay();
   }
 
-  return Array.from(followers).map((s) => JSON.parse(s)).slice(0, limit);
+  return Array.from(followers)
+    .map((s) => JSON.parse(s))
+    .slice(0, limit);
 }
 
 /**
@@ -143,16 +141,18 @@ export async function x_get_following({ username, limit = 100 }) {
   while (following.size < limit && retries < 10) {
     const users = await page.evaluate(() => {
       const cells = document.querySelectorAll('[data-testid="UserCell"]');
-      return Array.from(cells).map((cell) => {
-        const link = cell.querySelector('a[href^="/"]');
-        const nameEl = cell.querySelector('[dir="ltr"] > span');
-        const followsBack = cell.querySelector('[data-testid="userFollowIndicator"]');
-        return {
-          username: link?.href?.split('/')[3] || null,
-          name: nameEl?.textContent || null,
-          followsBack: !!followsBack,
-        };
-      }).filter(u => u.username);
+      return Array.from(cells)
+        .map((cell) => {
+          const link = cell.querySelector('a[href^="/"]');
+          const nameEl = cell.querySelector('[dir="ltr"] > span');
+          const followsBack = cell.querySelector('[data-testid="userFollowIndicator"]');
+          return {
+            username: link?.href?.split('/')[3] || null,
+            name: nameEl?.textContent || null,
+            followsBack: !!followsBack,
+          };
+        })
+        .filter((u) => u.username);
     });
 
     const prevSize = following.size;
@@ -165,7 +165,9 @@ export async function x_get_following({ username, limit = 100 }) {
     await randomDelay();
   }
 
-  return Array.from(following).map((s) => JSON.parse(s)).slice(0, limit);
+  return Array.from(following)
+    .map((s) => JSON.parse(s))
+    .slice(0, limit);
 }
 
 /**
@@ -173,10 +175,10 @@ export async function x_get_following({ username, limit = 100 }) {
  */
 export async function x_get_non_followers({ username }) {
   const following = await x_get_following({ username, limit: 500 });
-  const nonFollowers = following.filter(u => !u.followsBack);
+  const nonFollowers = following.filter((u) => !u.followsBack);
   return {
     total: following.length,
-    nonFollowers: nonFollowers.map(u => u.username),
+    nonFollowers: nonFollowers.map((u) => u.username),
     count: nonFollowers.length,
   };
 }
@@ -195,23 +197,25 @@ export async function x_get_tweets({ username, limit = 50 }) {
   while (tweets.size < limit && retries < 10) {
     const tweetData = await page.evaluate(() => {
       const articles = document.querySelectorAll('article[data-testid="tweet"]');
-      return Array.from(articles).map((article) => {
-        const textEl = article.querySelector('[data-testid="tweetText"]');
-        const timeEl = article.querySelector('time');
-        const likesEl = article.querySelector('[data-testid="like"] span');
-        const retweetsEl = article.querySelector('[data-testid="retweet"] span');
-        const repliesEl = article.querySelector('[data-testid="reply"] span');
-        const linkEl = article.querySelector('a[href*="/status/"]');
+      return Array.from(articles)
+        .map((article) => {
+          const textEl = article.querySelector('[data-testid="tweetText"]');
+          const timeEl = article.querySelector('time');
+          const likesEl = article.querySelector('[data-testid="like"] span');
+          const retweetsEl = article.querySelector('[data-testid="retweet"] span');
+          const repliesEl = article.querySelector('[data-testid="reply"] span');
+          const linkEl = article.querySelector('a[href*="/status/"]');
 
-        return {
-          text: textEl?.textContent || null,
-          timestamp: timeEl?.getAttribute('datetime') || null,
-          likes: likesEl?.textContent || '0',
-          retweets: retweetsEl?.textContent || '0',
-          replies: repliesEl?.textContent || '0',
-          url: linkEl?.href || null,
-        };
-      }).filter(t => t.text);
+          return {
+            text: textEl?.textContent || null,
+            timestamp: timeEl?.getAttribute('datetime') || null,
+            likes: likesEl?.textContent || '0',
+            retweets: retweetsEl?.textContent || '0',
+            replies: repliesEl?.textContent || '0',
+            url: linkEl?.href || null,
+          };
+        })
+        .filter((t) => t.text);
     });
 
     const prevSize = tweets.size;
@@ -224,7 +228,9 @@ export async function x_get_tweets({ username, limit = 50 }) {
     await randomDelay();
   }
 
-  return Array.from(tweets).map((s) => JSON.parse(s)).slice(0, limit);
+  return Array.from(tweets)
+    .map((s) => JSON.parse(s))
+    .slice(0, limit);
 }
 
 /**
@@ -244,19 +250,21 @@ export async function x_search_tweets({ query, limit = 50 }) {
   while (tweets.size < limit && retries < 10) {
     const tweetData = await page.evaluate(() => {
       const articles = document.querySelectorAll('article[data-testid="tweet"]');
-      return Array.from(articles).map((article) => {
-        const textEl = article.querySelector('[data-testid="tweetText"]');
-        const authorEl = article.querySelector('[data-testid="User-Name"] a');
-        const timeEl = article.querySelector('time');
-        const linkEl = article.querySelector('a[href*="/status/"]');
+      return Array.from(articles)
+        .map((article) => {
+          const textEl = article.querySelector('[data-testid="tweetText"]');
+          const authorEl = article.querySelector('[data-testid="User-Name"] a');
+          const timeEl = article.querySelector('time');
+          const linkEl = article.querySelector('a[href*="/status/"]');
 
-        return {
-          text: textEl?.textContent || null,
-          author: authorEl?.href?.split('/')[3] || null,
-          timestamp: timeEl?.getAttribute('datetime') || null,
-          url: linkEl?.href || null,
-        };
-      }).filter(t => t.text);
+          return {
+            text: textEl?.textContent || null,
+            author: authorEl?.href?.split('/')[3] || null,
+            timestamp: timeEl?.getAttribute('datetime') || null,
+            url: linkEl?.href || null,
+          };
+        })
+        .filter((t) => t.text);
     });
 
     const prevSize = tweets.size;
@@ -269,7 +277,9 @@ export async function x_search_tweets({ query, limit = 50 }) {
     await randomDelay();
   }
 
-  return Array.from(tweets).map((s) => JSON.parse(s)).slice(0, limit);
+  return Array.from(tweets)
+    .map((s) => JSON.parse(s))
+    .slice(0, limit);
 }
 
 /**
@@ -407,9 +417,9 @@ export async function x_unfollow_non_followers({ username, maxUnfollows = 100, d
   }
 
   return {
-    unfollowed: results.filter(r => r.success).map(r => r.username),
-    failed: results.filter(r => !r.success).map(r => r.username),
-    count: results.filter(r => r.success).length,
+    unfollowed: results.filter((r) => r.success).map((r) => r.username),
+    failed: results.filter((r) => !r.success).map((r) => r.username),
+    count: results.filter((r) => r.success).length,
   };
 }
 
@@ -417,9 +427,8 @@ export async function x_unfollow_non_followers({ username, maxUnfollows = 100, d
  * Detect unfollowers (requires previous snapshot)
  */
 export async function x_detect_unfollowers({ username }) {
-  const STORAGE_KEY = `xactions_mcp_followers_${username}`;
   const followers = await x_get_followers({ username, limit: 1000 });
-  const currentFollowers = followers.map(f => f.username);
+  const currentFollowers = followers.map((f) => f.username);
 
   // In MCP context, we'd need to persist this somehow
   // For now, return current state and let AI manage comparison
@@ -501,13 +510,15 @@ export async function x_get_trends({ country = 'worldwide', limit = 10 }) {
   const scriptPath = pathMod.default.join(__dirname, '../../scripts/trend_extractor.py');
 
   return new Promise((resolve) => {
-    const proc = spawn('python', [
-      scriptPath, '--action', 'trends', '--country', country
-    ]);
+    const proc = spawn('python', [scriptPath, '--action', 'trends', '--country', country]);
     let out = '';
     let err = '';
-    proc.stdout.on('data', (d) => { out += d.toString(); });
-    proc.stderr.on('data', (d) => { err += d.toString(); });
+    proc.stdout.on('data', (d) => {
+      out += d.toString();
+    });
+    proc.stderr.on('data', (d) => {
+      err += d.toString();
+    });
     proc.on('close', () => {
       try {
         const match = out.match(/\{[\s\S]*\}/);
@@ -539,9 +550,7 @@ export async function x_check_suspension({ username }) {
       bodyText.includes('Account suspended') ||
       bodyText.includes('has been suspended') ||
       !!document.querySelector('[data-testid="empty_state_header_text"]');
-    const notFound =
-      bodyText.includes('This account doesn') ||
-      bodyText.includes('doesn\'t exist');
+    const notFound = bodyText.includes('This account doesn') || bodyText.includes("doesn't exist");
     return { isSuspended, notFound };
   });
 
@@ -572,9 +581,13 @@ export async function x_download_video({ tweetUrl }) {
       /https:\/\/[^"'\s]*\/ext_tw_video[^"'\s]*\.mp4[^"'\s]*/g,
     ];
 
-    patterns.forEach(pattern => {
-      (html.match(pattern) || []).forEach(url => {
-        let clean = url.replace(/\\u002F/g, '/').replace(/\\/g, '').split('"')[0].split("'")[0];
+    patterns.forEach((pattern) => {
+      (html.match(pattern) || []).forEach((url) => {
+        const clean = url
+          .replace(/\\u002F/g, '/')
+          .replace(/\\/g, '')
+          .split('"')[0]
+          .split("'")[0];
         if (clean.includes('.mp4')) {
           const quality = clean.match(/\/(\d+x\d+)\//)?.[1] || 'unknown';
           videos.push({ url: clean, quality });
@@ -584,7 +597,7 @@ export async function x_download_video({ tweetUrl }) {
 
     // Deduplicate
     const seen = new Set();
-    return videos.filter(v => {
+    return videos.filter((v) => {
       const key = v.url.split('?')[0];
       if (seen.has(key)) return false;
       seen.add(key);
@@ -598,7 +611,7 @@ export async function x_download_video({ tweetUrl }) {
 
   // Sort by quality (highest first)
   videoUrls.sort((a, b) => {
-    const res = q => parseInt(q.match(/(\d+)x(\d+)/)?.[2] || 0);
+    const res = (q) => parseInt(q.match(/(\d+)x(\d+)/)?.[2] || 0);
     return res(b.quality) - res(a.quality);
   });
 
@@ -624,22 +637,32 @@ export async function x_get_bookmarks({ limit = 100 }) {
   while (bookmarks.size < limit && retries < 8) {
     const items = await page.evaluate(() => {
       const articles = document.querySelectorAll('article[data-testid="tweet"]');
-      return Array.from(articles).map(article => {
-        const text = article.querySelector('[data-testid="tweetText"]')?.textContent || null;
-        const userName = article.querySelector('[data-testid="User-Name"]')?.textContent || '';
-        const handle = userName.match(/@(\w+)/)?.[1] || null;
-        const timeLink = article.querySelector('time')?.closest('a');
-        const url = timeLink?.href || null;
-        const tweetId = url?.split('/status/')[1]?.split('?')[0] || null;
-        const time = article.querySelector('time')?.getAttribute('datetime') || null;
-        const likesEl = article.querySelector('[data-testid="like"] span');
-        const retweetsEl = article.querySelector('[data-testid="retweet"] span');
-        return { tweetId, handle, text, url, time, likes: likesEl?.textContent || '0', retweets: retweetsEl?.textContent || '0' };
-      }).filter(b => b.tweetId && b.text);
+      return Array.from(articles)
+        .map((article) => {
+          const text = article.querySelector('[data-testid="tweetText"]')?.textContent || null;
+          const userName = article.querySelector('[data-testid="User-Name"]')?.textContent || '';
+          const handle = userName.match(/@(\w+)/)?.[1] || null;
+          const timeLink = article.querySelector('time')?.closest('a');
+          const url = timeLink?.href || null;
+          const tweetId = url?.split('/status/')[1]?.split('?')[0] || null;
+          const time = article.querySelector('time')?.getAttribute('datetime') || null;
+          const likesEl = article.querySelector('[data-testid="like"] span');
+          const retweetsEl = article.querySelector('[data-testid="retweet"] span');
+          return {
+            tweetId,
+            handle,
+            text,
+            url,
+            time,
+            likes: likesEl?.textContent || '0',
+            retweets: retweetsEl?.textContent || '0',
+          };
+        })
+        .filter((b) => b.tweetId && b.text);
     });
 
     const prevSize = bookmarks.size;
-    items.forEach(b => bookmarks.set(b.tweetId, b));
+    items.forEach((b) => bookmarks.set(b.tweetId, b));
 
     if (bookmarks.size === prevSize) retries++;
     else retries = 0;
@@ -670,19 +693,21 @@ export async function x_get_thread({ tweetUrl }) {
   while (retries < 8) {
     const items = await page.evaluate((authorFilter) => {
       const articles = document.querySelectorAll('article[data-testid="tweet"]');
-      return Array.from(articles).map(article => {
-        const text = article.querySelector('[data-testid="tweetText"]')?.textContent || null;
-        const userName = article.querySelector('[data-testid="User-Name"]')?.textContent || '';
-        const handle = userName.match(/@(\w+)/)?.[1]?.toLowerCase() || null;
-        const timeLink = article.querySelector('time')?.closest('a');
-        const url = timeLink?.href || null;
-        const time = article.querySelector('time')?.getAttribute('datetime') || null;
-        return { handle, text, url, time };
-      }).filter(t => t.text && t.url && (!authorFilter || t.handle === authorFilter));
+      return Array.from(articles)
+        .map((article) => {
+          const text = article.querySelector('[data-testid="tweetText"]')?.textContent || null;
+          const userName = article.querySelector('[data-testid="User-Name"]')?.textContent || '';
+          const handle = userName.match(/@(\w+)/)?.[1]?.toLowerCase() || null;
+          const timeLink = article.querySelector('time')?.closest('a');
+          const url = timeLink?.href || null;
+          const time = article.querySelector('time')?.getAttribute('datetime') || null;
+          return { handle, text, url, time };
+        })
+        .filter((t) => t.text && t.url && (!authorFilter || t.handle === authorFilter));
     }, author);
 
     const prevSize = tweets.size;
-    items.forEach(t => tweets.set(t.url, t));
+    items.forEach((t) => tweets.set(t.url, t));
 
     if (tweets.size === prevSize) retries++;
     else retries = 0;
@@ -701,7 +726,9 @@ export async function x_get_thread({ tweetUrl }) {
 export async function x_get_viral_tweets({ query, minLikes = 100, limit = 50, sortBy = 'likes' }) {
   const { page } = await initBrowser();
   const encodedQuery = encodeURIComponent(query);
-  await page.goto(`https://x.com/search?q=${encodedQuery}&src=typed_query&f=top`, { waitUntil: 'networkidle2' });
+  await page.goto(`https://x.com/search?q=${encodedQuery}&src=typed_query&f=top`, {
+    waitUntil: 'networkidle2',
+  });
   await randomDelay();
 
   const tweets = new Map();
@@ -717,28 +744,41 @@ export async function x_get_viral_tweets({ query, minLikes = 100, limit = 50, so
         return num;
       };
       const articles = document.querySelectorAll('article[data-testid="tweet"]');
-      return Array.from(articles).map(article => {
-        const text = article.querySelector('[data-testid="tweetText"]')?.textContent || null;
-        const userName = article.querySelector('[data-testid="User-Name"]')?.textContent || '';
-        const handle = userName.match(/@(\w+)/)?.[1] || null;
-        const timeLink = article.querySelector('time')?.closest('a');
-        const url = timeLink?.href || null;
-        const tweetId = url?.split('/status/')[1]?.split('?')[0] || null;
-        const buttons = article.querySelectorAll('[role="group"] button');
-        let likes = 0, retweets = 0, replies = 0;
-        buttons.forEach(btn => {
-          const label = btn.getAttribute('aria-label') || '';
-          const num = parseNum(label.match(/[\d,.]+[KM]?/)?.[0] || '0');
-          if (label.includes('like')) likes = num;
-          else if (label.includes('repost') || label.includes('Retweet')) retweets = num;
-          else if (label.includes('repl')) replies = num;
-        });
-        return { tweetId, handle, text, url, likes, retweets, replies, engagement: likes + retweets + replies };
-      }).filter(t => t.tweetId && t.text && t.likes >= minL);
+      return Array.from(articles)
+        .map((article) => {
+          const text = article.querySelector('[data-testid="tweetText"]')?.textContent || null;
+          const userName = article.querySelector('[data-testid="User-Name"]')?.textContent || '';
+          const handle = userName.match(/@(\w+)/)?.[1] || null;
+          const timeLink = article.querySelector('time')?.closest('a');
+          const url = timeLink?.href || null;
+          const tweetId = url?.split('/status/')[1]?.split('?')[0] || null;
+          const buttons = article.querySelectorAll('[role="group"] button');
+          let likes = 0,
+            retweets = 0,
+            replies = 0;
+          buttons.forEach((btn) => {
+            const label = btn.getAttribute('aria-label') || '';
+            const num = parseNum(label.match(/[\d,.]+[KM]?/)?.[0] || '0');
+            if (label.includes('like')) likes = num;
+            else if (label.includes('repost') || label.includes('Retweet')) retweets = num;
+            else if (label.includes('repl')) replies = num;
+          });
+          return {
+            tweetId,
+            handle,
+            text,
+            url,
+            likes,
+            retweets,
+            replies,
+            engagement: likes + retweets + replies,
+          };
+        })
+        .filter((t) => t.tweetId && t.text && t.likes >= minL);
     }, minLikes);
 
     const prevSize = tweets.size;
-    items.forEach(t => tweets.set(t.tweetId, t));
+    items.forEach((t) => tweets.set(t.tweetId, t));
 
     if (tweets.size === prevSize) retries++;
     else retries = 0;
@@ -787,4 +827,3 @@ export const toolMap = {
 };
 
 export default toolMap;
-

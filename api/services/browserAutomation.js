@@ -8,36 +8,35 @@
  * @author nichxbt
  */
 
-import TurnstileClient, { createBrowser as createTurnstileBrowser } from '../../src/solver/turnstile-client.js';
+import { BrowserManager, SELECTORS, sleep, randomDelay } from '../../src/core/index.js';
 
 // ============================================================================
-// Core Utilities
+// Core Utilities & Browser Lifecycle
 // ============================================================================
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const randomDelay = (min = 1000, max = 3000) => sleep(min + Math.random() * (max - min));
+export { sleep, randomDelay, SELECTORS };
 
 // Browser instance management (singleton)
-let browserInstance = null;
+let managerInstance = null;
 
 /**
- * Get or create browser instance using TurnstileSolver engine
+ * Get or create browser instance using unified BrowserManager engine
  */
 async function getBrowser() {
-  if (!browserInstance) {
-    browserInstance = new TurnstileClient('api_browser_automation');
-    await browserInstance.createSession();
+  if (!managerInstance) {
+    managerInstance = new BrowserManager({ sessionId: 'api_browser_automation' });
+    await managerInstance.launch();
   }
-  return browserInstance;
+  return managerInstance.client;
 }
 
 /**
  * Close browser instance
  */
 export async function closeBrowser() {
-  if (browserInstance) {
-    await browserInstance.destroySession();
-    browserInstance = null;
+  if (managerInstance) {
+    await managerInstance.close();
+    managerInstance = null;
   }
 }
 

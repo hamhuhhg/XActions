@@ -19,7 +19,8 @@
     return;
   }
 
-  const { log, sleep, randomDelay, scrollToTop, clickElement, waitForElement, storage, SELECTORS } = window.XActions.Core;
+  const { log, sleep, randomDelay, scrollToTop, clickElement, waitForElement, storage, SELECTORS } =
+    window.XActions.Core;
 
   // ============================================
   // CONFIGURATION
@@ -35,19 +36,19 @@
       '💯',
       'Facts!',
     ],
-    
+
     // Monitoring settings
-    CHECK_INTERVAL_SECONDS: 60,   // How often to check for new posts
-    MAX_COMMENTS_PER_SESSION: 5,  // Stop after this many comments
-    
+    CHECK_INTERVAL_SECONDS: 60, // How often to check for new posts
+    MAX_COMMENTS_PER_SESSION: 5, // Stop after this many comments
+
     // Behavior
-    ONLY_ORIGINAL_TWEETS: true,   // Skip replies and retweets
-    REQUIRE_KEYWORD: false,       // Only comment if post contains keyword
-    KEYWORDS: [],                 // Keywords to match (if REQUIRE_KEYWORD is true)
-    
+    ONLY_ORIGINAL_TWEETS: true, // Skip replies and retweets
+    REQUIRE_KEYWORD: false, // Only comment if post contains keyword
+    KEYWORDS: [], // Keywords to match (if REQUIRE_KEYWORD is true)
+
     // Safety
-    MIN_POST_AGE_SECONDS: 30,     // Don't comment on posts younger than this
-    MAX_POST_AGE_MINUTES: 30,     // Don't comment on posts older than this
+    MIN_POST_AGE_SECONDS: 30, // Don't comment on posts younger than this
+    MAX_POST_AGE_MINUTES: 30, // Don't comment on posts older than this
   };
 
   // ============================================
@@ -103,7 +104,7 @@
     if (!OPTIONS.REQUIRE_KEYWORD) return true;
     if (OPTIONS.KEYWORDS.length === 0) return true;
     const lowerText = text.toLowerCase();
-    return OPTIONS.KEYWORDS.some(kw => lowerText.includes(kw.toLowerCase()));
+    return OPTIONS.KEYWORDS.some((kw) => lowerText.includes(kw.toLowerCase()));
   };
 
   // ============================================
@@ -134,11 +135,11 @@
 
     // Type the comment
     const comment = getRandomComment();
-    
+
     // Focus and type
     replyInput.focus();
     await sleep(300);
-    
+
     // Use execCommand for contenteditable
     document.execCommand('insertText', false, comment);
     await sleep(500);
@@ -179,7 +180,7 @@
     for (const tweet of tweets) {
       const tweetId = getTweetId(tweet);
       if (!tweetId) continue;
-      
+
       // Skip if already commented
       if (commentedTweets.has(tweetId)) continue;
 
@@ -193,7 +194,7 @@
       if (ageMs !== null) {
         const ageSeconds = ageMs / 1000;
         const ageMinutes = ageSeconds / 60;
-        
+
         if (ageSeconds < OPTIONS.MIN_POST_AGE_SECONDS) continue;
         if (ageMinutes > OPTIONS.MAX_POST_AGE_MINUTES) continue;
       }
@@ -232,10 +233,10 @@
 
     if (newTweets.length > 0) {
       log(`Found ${newTweets.length} new tweets to comment on!`, 'success');
-      
+
       for (const { element, tweetId, text } of newTweets) {
         if (commentCount >= OPTIONS.MAX_COMMENTS_PER_SESSION) break;
-        
+
         log(`Commenting on: "${text}..."`, 'action');
         await postComment(element);
         await randomDelay(3000, 6000);
@@ -256,7 +257,7 @@
   // ============================================
   const run = async () => {
     const username = getUsername();
-    
+
     console.log(`
 ╔═══════════════════════════════════════════════════════════╗
 ║  💬 XActions Auto Commenter                              ║

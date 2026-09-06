@@ -64,16 +64,32 @@ class SessionManager:
         proxy: Optional[str] = None,
         ttl_minutes: Optional[int] = None,
     ) -> str:
+        import os
+        import re
+
         sid = session_id or str(uuid.uuid4())
 
         async with self._lock:
             if sid in self._sessions:
-                logger.info("Reusing existing session %s", sid)
-                return sid
+                existing = self._sessions[sid]
+                if not _browser_stopped(existing.browser):
+                    logger.info("Reusing existing session %s", sid)
+                    return sid
+                else:
+                    logger.info("Session %s browser was closed, releasing stale session.", sid)
+                    self._sessions.pop(sid, None)
+                    self.semaphore.release()
 
         browser_args = _base_browser_args()
         if proxy:
             browser_args.append(f"--proxy-server={proxy}")
+
+        # Ensure persistent profile directory per session/account
+        safe_sid = re.sub(r'[^a-zA-Z0-9_\-]', '_', sid)
+        profile_dir = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", "browser_profiles", safe_sid)
+        )
+        os.makedirs(profile_dir, exist_ok=True)
 
         acquired = False
         try:
@@ -86,6 +102,7 @@ class SessionManager:
         stored = False
         try:
             config = zd.Config(
+                user_data_dir=profile_dir,
                 headless=settings.HEADLESS,
                 browser_executable_path=settings.BROWSER_EXECUTABLE_PATH,
                 browser_args=browser_args,
@@ -101,7 +118,7 @@ class SessionManager:
             async with self._lock:
                 self._sessions[sid] = entry
             stored = True
-            logger.info("Created session %s", sid)
+            logger.info("Created session %s (profile: %s)", sid, profile_dir)
             return sid
         finally:
             if not stored:

@@ -66,7 +66,7 @@ window.XActions.Core = (() => {
   // UTILITY FUNCTIONS
   // ============================================
 
-  const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
   const randomDelay = (min, max) => {
     const delay = Math.floor(Math.random() * (max - min + 1)) + min;
@@ -75,13 +75,14 @@ window.XActions.Core = (() => {
 
   const log = (message, type = 'info') => {
     const timestamp = new Date().toLocaleTimeString();
-    const prefix = {
-      info: '📘',
-      success: '✅',
-      warning: '⚠️',
-      error: '❌',
-      action: '🔧',
-    }[type] || '📘';
+    const prefix =
+      {
+        info: '📘',
+        success: '✅',
+        warning: '⚠️',
+        error: '❌',
+        action: '🔧',
+      }[type] || '📘';
 
     if (CONFIG.DEBUG || type === 'error') {
       console.log(`${prefix} [${timestamp}] ${message}`);
@@ -131,12 +132,12 @@ window.XActions.Core = (() => {
 
     list: () => {
       return Object.keys(localStorage)
-        .filter(k => k.startsWith(CONFIG.STORAGE_PREFIX))
-        .map(k => k.replace(CONFIG.STORAGE_PREFIX, ''));
+        .filter((k) => k.startsWith(CONFIG.STORAGE_PREFIX))
+        .map((k) => k.replace(CONFIG.STORAGE_PREFIX, ''));
     },
 
     clear: () => {
-      storage.list().forEach(key => storage.remove(key));
+      storage.list().forEach((key) => storage.remove(key));
     },
   };
 
@@ -181,7 +182,7 @@ window.XActions.Core = (() => {
     if (!element) return false;
     try {
       element.focus();
-      // X.com uses Draft.js/React which ignores normal InputEvents. 
+      // X.com uses Draft.js/React which ignores normal InputEvents.
       // We use insertText and then blast it with events to be sure.
       document.execCommand('insertText', false, text);
 
@@ -201,7 +202,7 @@ window.XActions.Core = (() => {
   const pressKey = async (key, modifiers = {}) => {
     try {
       const target = document.activeElement || document.body;
-      const code = key === 'Enter' ? 'Enter' : (key.length === 1 ? `Key${key.toUpperCase()}` : key);
+      const code = key === 'Enter' ? 'Enter' : key.length === 1 ? `Key${key.toUpperCase()}` : key;
 
       const eventInit = {
         key: key,
@@ -209,7 +210,7 @@ window.XActions.Core = (() => {
         bubbles: true,
         cancelable: true,
         composed: true,
-        ...modifiers
+        ...modifiers,
       };
 
       target.dispatchEvent(new KeyboardEvent('keydown', eventInit));
@@ -242,8 +243,8 @@ window.XActions.Core = (() => {
     try {
       const text = tweetElement.querySelector(SELECTORS.tweetText)?.textContent || '';
       const links = Array.from(tweetElement.querySelectorAll('a[href]'))
-        .map(a => a.href)
-        .filter(href => href && !href.includes('x.com'));
+        .map((a) => a.href)
+        .filter((href) => href && !href.includes('x.com'));
       const tweetLink = tweetElement.querySelector(SELECTORS.tweetLink)?.href || '';
       const userName = tweetElement.querySelector(SELECTORS.userName)?.textContent || '';
 

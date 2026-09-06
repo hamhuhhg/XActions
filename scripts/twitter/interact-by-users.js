@@ -167,7 +167,7 @@ const CONFIG = {
       
       let userLikes = 0;
       let userRetweets = 0;
-      let userReplies = 0;
+      const userReplies = 0;
       
       for (const tweet of tweets) {
         if (!state.isRunning) break;

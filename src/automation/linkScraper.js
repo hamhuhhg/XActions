@@ -24,19 +24,20 @@
   // ============================================
   const OPTIONS = {
     // Scraping limits
-    MAX_SCROLLS: 100,            // How far to scroll
-    MAX_TWEETS: 500,             // Max tweets to process
-    
+    MAX_SCROLLS: 100, // How far to scroll
+    MAX_TWEETS: 500, // Max tweets to process
+
     // Filter options
     INCLUDE_TWITTER_LINKS: false, // Include links to other tweets/profiles
-    INCLUDE_MEDIA: false,         // Include pic.x.com links
-    DOMAINS_ONLY: [],             // Only these domains (empty = all)
-    EXCLUDE_DOMAINS: [            // Skip these domains
-      't.co',                     // Twitter's shortener (we expand these)
+    INCLUDE_MEDIA: false, // Include pic.x.com links
+    DOMAINS_ONLY: [], // Only these domains (empty = all)
+    EXCLUDE_DOMAINS: [
+      // Skip these domains
+      't.co', // Twitter's shortener (we expand these)
     ],
-    
+
     // Output
-    AUTO_DOWNLOAD: true,          // Auto-download results as file
+    AUTO_DOWNLOAD: true, // Auto-download results as file
   };
 
   // ============================================
@@ -81,11 +82,11 @@
 
       // Domain whitelist
       if (OPTIONS.DOMAINS_ONLY.length > 0) {
-        if (!OPTIONS.DOMAINS_ONLY.some(d => domain.includes(d))) return false;
+        if (!OPTIONS.DOMAINS_ONLY.some((d) => domain.includes(d))) return false;
       }
 
       // Domain blacklist
-      if (OPTIONS.EXCLUDE_DOMAINS.some(d => domain.includes(d))) return false;
+      if (OPTIONS.EXCLUDE_DOMAINS.some((d) => domain.includes(d))) return false;
 
       return true;
     } catch (e) {
@@ -95,25 +96,25 @@
 
   const extractLinks = (tweetElement) => {
     const tweetLinks = [];
-    
+
     // Get all anchor tags
     const anchors = tweetElement.querySelectorAll('a[href]');
-    
+
     for (const anchor of anchors) {
       let url = anchor.href;
-      
+
       // Try to get expanded URL from title attribute (Twitter often puts it there)
       const title = anchor.getAttribute('title');
       if (title && title.startsWith('http')) {
         url = title;
       }
-      
+
       // Or from aria-label
       const ariaLabel = anchor.getAttribute('aria-label');
       if (ariaLabel && ariaLabel.startsWith('http')) {
         url = ariaLabel;
       }
-      
+
       // Get display text which sometimes has the full URL
       const displayText = anchor.textContent;
       if (displayText && displayText.startsWith('http') && !displayText.includes('…')) {
@@ -124,7 +125,7 @@
         tweetLinks.push(url);
       }
     }
-    
+
     return [...new Set(tweetLinks)]; // Dedupe
   };
 
@@ -133,17 +134,17 @@
   // ============================================
   const processTweets = () => {
     const tweets = document.querySelectorAll(SELECTORS.tweet);
-    
+
     for (const tweet of tweets) {
       const tweetId = getTweetId(tweet);
       if (!tweetId || processedTweetIds.has(tweetId)) continue;
-      
+
       processedTweetIds.add(tweetId);
       tweetsProcessed++;
 
       const tweetLinks = extractLinks(tweet);
       const tweetUrl = `https://x.com/i/status/${tweetId}`;
-      
+
       for (const url of tweetLinks) {
         if (links.has(url)) {
           const existing = links.get(url);
@@ -165,8 +166,7 @@
   // ============================================
   const generateReport = () => {
     const username = getUsername();
-    const sortedLinks = Array.from(links.entries())
-      .sort((a, b) => b[1].count - a[1].count);
+    const sortedLinks = Array.from(links.entries()).sort((a, b) => b[1].count - a[1].count);
 
     // Console output
     console.log('\n' + '='.repeat(60));
@@ -187,8 +187,7 @@
     }
 
     // Print by domain
-    const sortedDomains = Object.entries(byDomain)
-      .sort((a, b) => b[1].length - a[1].length);
+    const sortedDomains = Object.entries(byDomain).sort((a, b) => b[1].length - a[1].length);
 
     for (const [domain, domainLinks] of sortedDomains.slice(0, 10)) {
       console.log(`\n🌐 ${domain} (${domainLinks.length} links)`);
@@ -206,7 +205,7 @@
 
   const downloadResults = (report) => {
     const { username, sortedLinks } = report;
-    
+
     // Create detailed JSON
     const jsonData = {
       username,
@@ -254,18 +253,18 @@
 
     while (scrollCount < OPTIONS.MAX_SCROLLS && tweetsProcessed < OPTIONS.MAX_TWEETS) {
       processTweets();
-      
+
       scrollBy(800);
       scrollCount++;
       await sleep(1500);
-      
+
       if (scrollCount % 10 === 0) {
         log(`Progress: ${tweetsProcessed} tweets, ${links.size} unique links`, 'info');
       }
     }
 
     const report = generateReport();
-    
+
     // Save to storage
     storage.set(`links_${username}`, {
       links: Array.from(links.entries()),

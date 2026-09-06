@@ -57,17 +57,32 @@ async def solve_request(
         if session_id:
             entry = await session_manager.get(session_id)
             browser = entry.browser
+            is_ephemeral = False
             
             remaining_s = max(deadline - time.monotonic(), 2.0)
-            tab = await _open_tab(
-                browser=browser,
-                url=url,
-                method=method,
-                post_data=post_data,
-                cookies=cookies,
-                disable_media=disable_media,
-                timeout_s=remaining_s,
-            )
+            tab = getattr(browser, "main_tab", None)
+            if not tab and hasattr(browser, "tabs") and browser.tabs:
+                tab = browser.tabs[0]
+            
+            if tab is not None:
+                if cookies:
+                    await _set_cookies(tab, cookies)
+                if disable_media:
+                    await _block_media(tab)
+                if method == "POST" and post_data:
+                    await _submit_post(tab, url, post_data)
+                else:
+                    await tab.get(url)
+            else:
+                tab = await _open_tab(
+                    browser=browser,
+                    url=url,
+                    method=method,
+                    post_data=post_data,
+                    cookies=cookies,
+                    disable_media=disable_media,
+                    timeout_s=remaining_s,
+                )
             
             remaining_s = max(deadline - time.monotonic(), 2.0)
             captured_token = await _solve_cf(tab=tab, timeout_s=remaining_s, turnstile_input_name=turnstile_input_name)
@@ -79,6 +94,7 @@ async def solve_request(
                 turnstile_input_name=turnstile_input_name,
             )
         else:
+            is_ephemeral = True
             async with _ephemeral_browser(proxy) as browser:
                 remaining_s = max(deadline - time.monotonic(), 2.0)
                 tab = await _open_tab(
@@ -101,7 +117,7 @@ async def solve_request(
                     turnstile_input_name=turnstile_input_name,
                 )
     finally:
-        if tab is not None:
+        if is_ephemeral and tab is not None:
             try:
                 await tab.close()
             except Exception:
@@ -195,13 +211,16 @@ async def _set_cookies(tab: Tab, cookies: List[CookieInput]) -> None:
         return
     params = []
     for c in cookies:
+        domain = c.domain or ".facebook.com"
+        clean_domain = domain.lstrip(".")
         param = cdp.network.CookieParam(
             name=c.name,
             value=c.value,
-            domain=c.domain,
+            url=f"https://{clean_domain}/",
+            domain=domain,
             path=c.path or "/",
-            secure=c.secure,
-            http_only=c.httpOnly,
+            secure=c.secure if c.secure is not None else True,
+            http_only=c.httpOnly if c.httpOnly is not None else False,
             expires=cdp.network.TimeSinceEpoch(c.expires) if c.expires else None,
         )
         params.append(param)

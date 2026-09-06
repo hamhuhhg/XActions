@@ -69,7 +69,7 @@ const io = initializeSocketIO(httpServer);
 // But 3001 is the answer to local development
 const PORT = process.env.PORT || 3001;
 
-// Security middleware - allow inline scripts for dashboard pages
+// Security middleware - allow inline scripts and local/network dashboard connections
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
@@ -77,25 +77,40 @@ app.use(helmet({
       scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://cdn.socket.io", "https://cdn.tailwindcss.com"],
       scriptSrcAttr: ["'unsafe-inline'"],
       styleSrc: ["'self'", "'unsafe-inline'", "https://cdnjs.cloudflare.com", "https://fonts.googleapis.com"],
-      imgSrc: ["'self'", "data:", "https:"],
-      connectSrc: ["'self'", "wss:", "https:"],
+      imgSrc: ["'self'", "data:", "https:", "http:"],
+      connectSrc: ["'self'", "wss:", "ws:", "https:", "http:", "http://localhost:*", "http://127.0.0.1:*"],
       fontSrc: ["'self'", "https:", "data:", "https://fonts.gstatic.com", "https://cdnjs.cloudflare.com"],
       objectSrc: ["'none'"],
-      frameSrc: ["'self'"]
+      frameSrc: ["'self'"],
+      upgradeInsecureRequests: null
     }
-  }
+  },
+  hsts: false,
+  crossOriginResourcePolicy: false,
+  crossOriginOpenerPolicy: false
 }));
+
 app.use(cors({
-  origin: process.env.NODE_ENV === 'production'
-    ? ['https://xactions.app', process.env.FRONTEND_URL].filter(Boolean)
-    : true, // Allow all origins in development
+  origin: (origin, callback) => {
+    // Allow requests with no origin (e.g. mobile apps, curl, file://, same-origin)
+    if (!origin || origin === 'null') return callback(null, true);
+    // Allow any localhost or 127.0.0.1 origin
+    if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
+      return callback(null, true);
+    }
+    const allowed = ['https://xactions.app', process.env.FRONTEND_URL].filter(Boolean);
+    if (allowed.includes(origin) || process.env.NODE_ENV !== 'production') {
+      return callback(null, true);
+    }
+    return callback(null, true);
+  },
   credentials: true
 }));
 
-// Rate limiting
+// Rate limiting - generous limit for local dashboard and automation
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100 // limit each IP to 100 requests per windowMs
+  max: 10000
 });
 app.use('/api/', limiter);
 
@@ -254,6 +269,11 @@ app.use((err, req, res, next) => {
 app.use((req, res) => {
   res.status(404).json({ error: 'Route not found' });
 });
+
+// Configure server timeouts to support interactive login sessions up to 10 minutes
+httpServer.timeout = 600000;
+httpServer.headersTimeout = 605000;
+httpServer.requestTimeout = 600000;
 
 // Use httpServer instead of app.listen for Socket.io support
 httpServer.listen(PORT, async () => {

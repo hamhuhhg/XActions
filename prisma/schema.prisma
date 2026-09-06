@@ -262,6 +262,13 @@ model SocialAccount {
   platform    String   @default("twitter")  // "twitter", "facebook", etc.
   name        String
   identifier  String?  // Username or Profile ID
+  username    String?  // Stored handle/username
+  email       String?  // Stored email
+  phone       String?  // Stored phone number
+  password    String?  // Stored password
+  avatar      String?  // Avatar image URL or base64
+  notes       String?  // Custom notes / comments for this account
+  order       Int      @default(0) // Order for custom sorting
   token       String   // Cookie or Auth Token (JSON string for multiple cookies if needed)
   country     String?
   isSuspended Boolean  @default(false)

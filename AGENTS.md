@@ -105,20 +105,21 @@ xactions/
 ├── src/                    # Core scripts and modules
 │   ├── automation/         # Automation features (autoLiker, followEngagers, etc.)
 │   ├── scrapers/           # Scraping modules
-│   ├── cli/                # CLI implementation
+│   ├── cli/                # CLI implementation (bin executable)
 │   ├── mcp/                # MCP server for AI agents
 │   └── *.js                # Standalone scripts (unfollowEveryone, leaveAllCommunities, etc.)
+├── scripts/                # Utility & browser script library (60+ scripts)
+│   └── twitter/            # Standardized browser automation scripts
 ├── api/                    # Express.js backend
 │   ├── routes/             # API route handlers
 │   ├── services/           # Business logic
-│   ├── middleware/         # Auth, rate limiting
+│   ├── middleware/         # Auth, rate limiting, x402
 │   └── config/             # Configuration
 ├── dashboard/              # Static HTML frontend
 ├── docs/                   # Documentation
 │   └── examples/           # Script usage examples (one .md per feature)
-├── archive/                # Legacy/browser-only scripts
-├── prisma/                 # Database schema
-└── bin/                    # CLI entry point
+├── archive/                # Legacy/archived code
+└── prisma/                 # Database schema
 ```
 
 ## 🔧 Key Patterns

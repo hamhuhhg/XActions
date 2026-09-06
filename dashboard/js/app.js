@@ -565,6 +565,26 @@ tailwind.config = {
           { id: 'text', label: 'التعليق المكتوب', type: 'textarea', placeholder: 'Awesome post!', required: true }
         ]
       },
+      'fbWarmup': {
+        id: 'fbWarmup',
+        type: 'action',
+        title: 'فيس بوك - تنشيط وتفاعل الحسابات',
+        desc: 'حملة تنشيط وتسخين للحسابات المحددة عبر التفاعل والإعجاب بمنشورات اليوميات بعدد عشوائي وفواصل زمنية بشرية لتجنب الحظر.',
+        icon: 'fa-solid fa-fire-flame-curved',
+        color: 'text-orange-500',
+        endpoint: '/api/new_api/facebook/run',
+        method: 'POST',
+        requiresAuth: true,
+        scriptName: 'fb_warmup_accounts',
+        platform: 'facebook',
+        inputs: [
+          { id: 'likesCount', label: 'عدد الإعجابات الأساسي لكل حساب', type: 'number', placeholder: '5', defaultValue: 5, required: true },
+          { id: 'variance', label: 'معدل التباين العشوائي (± يزيد أو ينقص)', type: 'number', placeholder: '2', defaultValue: 2, required: true },
+          { id: 'delayMin', label: 'أدنى وقت انتظار بين الإعجابات (ثوانٍ)', type: 'number', placeholder: '5', defaultValue: 5 },
+          { id: 'delayMax', label: 'أقصى وقت انتظار بين الإعجابات (ثوانٍ)', type: 'number', placeholder: '12', defaultValue: 12 },
+          { id: 'feedUrl', label: 'رابط التغذية / الصفحة المستهدفة (اختياري - افتراضياً اليوميات الرئيسية)', type: 'text', placeholder: 'https://www.facebook.com' }
+        ]
+      },
       // --- AI ---
       'aiChat': {
         id: 'aiChat',
@@ -1204,26 +1224,19 @@ tailwind.config = {
 
     async function syncAccountsWithDb() {
       try {
-        // 1. Send local accounts to DB first
-        if (xactionsAccounts.length > 0) {
-          await fetch('/api/new_api/accounts/sync', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ accounts: xactionsAccounts })
-          });
-        }
-        
-        // 2. Fetch all accounts from DB
+        // 1. Fetch all accounts from DB first (Single source of truth)
         const res = await fetch('/api/new_api/accounts');
         const result = await res.json();
         
-        if (result.success && result.data && result.data.length > 0) {
+        if (result.success && Array.isArray(result.data)) {
           let hasChanges = false;
+          const dbIds = new Set(result.data.map(d => String(d.id)));
+
           result.data.forEach(dbAcc => {
             const existing = xactionsAccounts.find(a => String(a.id) === String(dbAcc.id));
             if (!existing) {
               xactionsAccounts.push({
-                id: dbAcc.id,
+                id: String(dbAcc.id),
                 name: dbAcc.name,
                 token: dbAcc.token,
                 country: dbAcc.country,
@@ -1232,18 +1245,42 @@ tailwind.config = {
               });
               hasChanges = true;
             } else {
-                // Update local if necessary
-                if (existing.platform !== dbAcc.platform || existing.isSuspended !== dbAcc.isSuspended) {
-                    existing.platform = dbAcc.platform || 'twitter';
-                    existing.isSuspended = dbAcc.isSuspended;
-                    hasChanges = true;
-                }
+              // Don't overwrite if the user is currently editing this account in the UI
+              if (editingAccountId && String(editingAccountId) === String(dbAcc.id)) {
+                return;
+              }
+              // Update local state if token, name, platform, or status changed in DB
+              if (
+                existing.token !== dbAcc.token ||
+                existing.name !== dbAcc.name ||
+                existing.platform !== dbAcc.platform ||
+                existing.isSuspended !== dbAcc.isSuspended ||
+                existing.country !== dbAcc.country
+              ) {
+                existing.token = dbAcc.token;
+                existing.name = dbAcc.name;
+                existing.platform = dbAcc.platform || 'twitter';
+                existing.country = dbAcc.country;
+                existing.isSuspended = dbAcc.isSuspended;
+                hasChanges = true;
+              }
             }
           });
+
+          // 2. Sync any local-only new accounts up to DB
+          const localOnly = xactionsAccounts.filter(a => !dbIds.has(String(a.id)));
+          if (localOnly.length > 0) {
+            await fetch('/api/new_api/accounts/sync', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ accounts: localOnly })
+            });
+          }
           
           if (hasChanges) {
-              localStorage.setItem('xactions_accounts', JSON.stringify(xactionsAccounts));
-              renderAccountsList();
+            localStorage.setItem('xactions_accounts', JSON.stringify(xactionsAccounts));
+            renderAccountsList();
+            updateAccountsBadge();
           }
         }
       } catch (err) {
@@ -1253,7 +1290,7 @@ tailwind.config = {
 
     let currentAccountPlatform = 'twitter';
 
-    function setAccountPlatform(platform) {
+    function setAccountPlatform(platform, preserveEdit = false) {
       currentAccountPlatform = platform;
       
       // Update Tab Styles
@@ -1270,39 +1307,85 @@ tailwind.config = {
         document.getElementById('new-account-token').placeholder = 'كوكيز فيسبوك: {"c_user":"...","xs":"..."}';
       }
       
-      cancelEdit();
+      if (!preserveEdit) {
+        cancelEdit();
+      }
       renderAccountsList();
     }
 
-    function addAccount() {
+    async function addAccount() {
       const nameInput = document.getElementById('new-account-name');
       const tokenInput = document.getElementById('new-account-token');
       const countryInput = document.getElementById('new-account-country');
       const name = nameInput.value.trim();
       const token = tokenInput.value.trim();
       const country = countryInput.value;
-      if (!name || !token) return alert('يرجى إدخال اسم الحساب ورمز المصادقة.');
+      if (!name || !token) return alert('يرجى إدخال اسم الحساب ورمز المصادقة أو الكعكات.');
 
-      if (editingAccountId) {
-        const index = xactionsAccounts.findIndex(acc => acc.id === editingAccountId);
-        if (index !== -1) {
-          xactionsAccounts[index] = { ...xactionsAccounts[index], name, token, country, platform: currentAccountPlatform };
+      const saveBtn = document.getElementById('save-account-btn');
+      const originalBtnHtml = saveBtn.innerHTML;
+      saveBtn.disabled = true;
+      saveBtn.innerHTML = 'جاري الحفظ... <i class="fa-solid fa-spinner fa-spin ml-1"></i>';
+
+      let accountToSync = null;
+
+      try {
+        if (editingAccountId) {
+          const index = xactionsAccounts.findIndex(acc => String(acc.id) === String(editingAccountId));
+          if (index !== -1) {
+            xactionsAccounts[index] = {
+              ...xactionsAccounts[index],
+              name,
+              token,
+              country,
+              platform: currentAccountPlatform || xactionsAccounts[index].platform || 'twitter'
+            };
+            accountToSync = xactionsAccounts[index];
+          }
+          editingAccountId = null;
+          saveBtn.innerHTML = 'حفظ الحساب <i class="fa-solid fa-check ml-1"></i>';
+          const cancelBtn = document.getElementById('cancel-edit-btn');
+          if (cancelBtn) cancelBtn.classList.add('hidden');
+        } else {
+          accountToSync = {
+            id: String(Date.now()),
+            name,
+            token,
+            country,
+            platform: currentAccountPlatform || 'twitter'
+          };
+          xactionsAccounts.push(accountToSync);
         }
-        editingAccountId = null;
-        document.getElementById('save-account-btn').innerHTML = 'حفظ الحساب <i class="fa-solid fa-check ml-1"></i>';
-        const cancelBtn = document.getElementById('cancel-edit-btn');
-        if (cancelBtn) cancelBtn.classList.add('hidden');
-      } else {
-        xactionsAccounts.push({ id: Date.now(), name, token, country, platform: currentAccountPlatform });
+
+        // 1. Immediately persist this account (created or updated) directly to the database!
+        if (accountToSync) {
+          await fetch('/api/new_api/accounts/sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ accounts: [accountToSync] })
+          });
+        }
+
+        // 2. Save updated state to localStorage
+        localStorage.setItem('xactions_accounts', JSON.stringify(xactionsAccounts));
+
+        nameInput.value = '';
+        tokenInput.value = '';
+        countryInput.value = 'global';
+        renderAccountsList();
+        updateAccountsBadge();
+
+        // 3. Re-sync with DB to ensure perfect synchronization
+        await syncAccountsWithDb();
+      } catch (e) {
+        console.error('Error saving account:', e);
+        alert('حدث خطأ أثناء حفظ الحساب في قاعدة البيانات: ' + e.message);
+      } finally {
+        saveBtn.disabled = false;
+        if (!editingAccountId) {
+          saveBtn.innerHTML = 'حفظ الحساب <i class="fa-solid fa-check ml-1"></i>';
+        }
       }
-
-      localStorage.setItem('xactions_accounts', JSON.stringify(xactionsAccounts));
-      syncAccountsWithDb();
-
-      nameInput.value = '';
-      tokenInput.value = '';
-      countryInput.value = 'global';
-      renderAccountsList();
     }
 
     function cancelEdit() {
@@ -1311,15 +1394,22 @@ tailwind.config = {
       document.getElementById('new-account-token').value = '';
       document.getElementById('new-account-country').value = 'global';
       document.getElementById('save-account-btn').innerHTML = 'حفظ الحساب <i class="fa-solid fa-check ml-1"></i>';
-      document.getElementById('cancel-edit-btn').classList.add('hidden');
+      const cancelBtn = document.getElementById('cancel-edit-btn');
+      if (cancelBtn) cancelBtn.classList.add('hidden');
     }
 
     function editAccount(id) {
-      const acc = xactionsAccounts.find(a => a.id === id);
+      const acc = xactionsAccounts.find(a => String(a.id) === String(id));
       if (!acc) return;
-      editingAccountId = id;
-      document.getElementById('new-account-name').value = acc.name;
-      document.getElementById('new-account-token').value = acc.token;
+      editingAccountId = String(acc.id);
+
+      // Switch platform tab if necessary to match the account being edited
+      if (acc.platform && acc.platform !== currentAccountPlatform) {
+        setAccountPlatform(acc.platform, true);
+      }
+
+      document.getElementById('new-account-name').value = acc.name || '';
+      document.getElementById('new-account-token').value = acc.token || '';
       document.getElementById('new-account-country').value = acc.country || 'global';
       document.getElementById('save-account-btn').innerHTML = 'تحديث الحساب <i class="fa-solid fa-pen ml-1"></i>';
 
@@ -1333,6 +1423,12 @@ tailwind.config = {
         document.getElementById('save-account-btn').parentElement.appendChild(cancelBtn);
       }
       cancelBtn.classList.remove('hidden');
+
+      const tokenEl = document.getElementById('new-account-token');
+      if (tokenEl) {
+        tokenEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        tokenEl.focus();
+      }
     }
 
     function buildFlagEmoji(countryCode) {
@@ -1341,13 +1437,40 @@ tailwind.config = {
       return country ? country.flag : '🌍';
     }
 
-    function deleteAccount(id) {
+    async function deleteAccount(id) {
       if (!confirm('هل أنت متأكد من حذف هذا الحساب؟')) return;
-      xactionsAccounts = xactionsAccounts.filter(acc => acc.id !== id);
-      if (editingAccountId === id) cancelEdit();
+      
+      try {
+        await fetch(`/api/new_api/accounts/${id}`, { method: 'DELETE' });
+      } catch (e) {
+        console.error('Error deleting account from DB:', e);
+      }
+
+      xactionsAccounts = xactionsAccounts.filter(acc => String(acc.id) !== String(id));
+      if (String(editingAccountId) === String(id)) cancelEdit();
       localStorage.setItem('xactions_accounts', JSON.stringify(xactionsAccounts));
-      syncAccountsWithDb();
       renderAccountsList();
+      updateAccountsBadge();
+    }
+
+    async function renameAccount(id) {
+      const acc = xactionsAccounts.find(a => String(a.id) === String(id));
+      if (!acc) return;
+      const newName = prompt('أدخل الاسم الجديد للحساب:', acc.name);
+      if (newName && newName.trim() && newName.trim() !== acc.name) {
+        acc.name = newName.trim();
+        localStorage.setItem('xactions_accounts', JSON.stringify(xactionsAccounts));
+        try {
+          await fetch('/api/new_api/accounts/sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ accounts: [acc] })
+          });
+        } catch (e) {
+          console.error(e);
+        }
+        renderAccountsList();
+      }
     }
 
     function renderAccountsList() {
@@ -1390,26 +1513,30 @@ tailwind.config = {
                 <i class="fa-brands ${platformIcon} text-sm"></i>
               </div>
               <div class="truncate">
-                <p class="text-sm font-medium ${acc.isSuspended ? 'text-rose-300' : 'text-white'} truncate flex items-center pr-2">
+                <p class="text-sm font-medium ${acc.isSuspended ? 'text-rose-300' : 'text-white'} truncate flex items-center pr-2 cursor-pointer hover:text-brand-300" onclick="renameAccount('${acc.id}')" title="انقر لإعادة تسمية الحساب">
                     ${acc.name}
                     <span class="mr-1.5 opacity-80" title="دولة الحساب">${flagEmoji}</span>
                     ${statusBadgeHtml}
+                    <i class="fa-solid fa-pen-to-square text-[11px] mr-1.5 text-slate-500 hover:text-brand-400 opacity-0 group-hover:opacity-100 transition-opacity"></i>
                 </p>
                 <p class="text-xs text-slate-500 font-mono truncate w-32 border-b border-dashed border-slate-700">***${acc.token.slice(-6)}</p>
               </div>
             </div>
             
             <div class="flex items-center gap-2 w-full sm:w-auto justify-end">
-                <button onclick="openSafeBrowser(${acc.id})" id="browse-btn-${acc.id}" class="text-xs px-2.5 py-1.5 rounded bg-blue-500/10 text-blue-400 hover:text-white hover:bg-blue-600 transition-colors flex items-center gap-1.5 border border-blue-500/30" title="تصفح المتصفح الآمن">
+                <button onclick="openSafeBrowser('${acc.id}')" id="browse-btn-${acc.id}" class="text-xs px-2.5 py-1.5 rounded bg-blue-500/10 text-blue-400 hover:text-white hover:bg-blue-600 transition-colors flex items-center gap-1.5 border border-blue-500/30" title="تصفح المتصفح الآمن">
                   <i class="fa-solid fa-up-right-from-square"></i>
                 </button>
-                <button onclick="checkSingleAccount(${acc.id})" id="check-btn-${acc.id}" class="text-xs px-2.5 py-1.5 rounded bg-slate-800 text-slate-300 hover:text-white hover:bg-slate-700 transition-colors flex items-center gap-1.5 border border-slate-700" title="فحص حالة الحساب">
+                <button onclick="checkSingleAccount('${acc.id}')" id="check-btn-${acc.id}" class="text-xs px-2.5 py-1.5 rounded bg-slate-800 text-slate-300 hover:text-white hover:bg-slate-700 transition-colors flex items-center gap-1.5 border border-slate-700" title="فحص حالة الحساب">
                   <i class="fa-solid fa-shield-halved"></i>
                 </button>
-                <button onclick="editAccount(${acc.id})" class="text-slate-400 hover:text-white hover:bg-slate-800 p-2 rounded transition-colors opacity-100 sm:opacity-0 sm:group-hover:opacity-100" title="تعديل الحساب">
+                <button onclick="renameAccount('${acc.id}')" class="text-slate-400 hover:text-amber-400 hover:bg-amber-400/10 p-2 rounded transition-colors opacity-100 sm:opacity-0 sm:group-hover:opacity-100" title="إعادة تسمية الحساب">
+                  <i class="fa-solid fa-pen-to-square text-sm"></i>
+                </button>
+                <button onclick="editAccount('${acc.id}')" class="text-slate-400 hover:text-white hover:bg-slate-800 p-2 rounded transition-colors opacity-100 sm:opacity-0 sm:group-hover:opacity-100" title="تعديل الحساب">
                   <i class="fa-solid fa-pen text-sm"></i>
                 </button>
-                <button onclick="deleteAccount(${acc.id})" class="text-rose-400 hover:text-rose-300 hover:bg-rose-400/10 p-2 rounded transition-colors opacity-100 sm:opacity-0 sm:group-hover:opacity-100" title="حذف الحساب">
+                <button onclick="deleteAccount('${acc.id}')" class="text-rose-400 hover:text-rose-300 hover:bg-rose-400/10 p-2 rounded transition-colors opacity-100 sm:opacity-0 sm:group-hover:opacity-100" title="حذف الحساب">
                   <i class="fa-solid fa-trash text-sm"></i>
                 </button>
             </div>
@@ -1461,7 +1588,7 @@ tailwind.config = {
       const btn = document.getElementById('btn-browser-login');
       const originalHtml = btn.innerHTML;
       btn.disabled = true;
-      btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري الفتح...';
+      btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> بانتظار إتمام تسجيل الدخول في المتصفح...';
 
       try {
         const platform = typeof currentAccountPlatform !== 'undefined' ? currentAccountPlatform : 'twitter';
@@ -1470,8 +1597,9 @@ tailwind.config = {
 
         if (data.success && data.token) {
           document.getElementById('new-account-token').value = data.token;
-          if (data.accountName) {
-            document.getElementById('new-account-name').value = data.accountName;
+          const enteredName = document.getElementById('new-account-name').value.trim();
+          if (!enteredName) {
+            document.getElementById('new-account-name').value = platform === 'facebook' ? (data.accountName || 'حساب فيسبوك') : (data.accountName || 'حساب جديد');
           }
           alert('تم تسجيل الدخول واستخراج الرمز بنجاح!');
         } else {
@@ -1479,7 +1607,7 @@ tailwind.config = {
         }
       } catch (err) {
         console.error(err);
-        alert('حدث خطأ في الاتصال بالخادم. تأكد من عمل السيرفر.');
+        alert('حدث خطأ أثناء جلسة تسجيل الدخول: ' + (err.message || 'يرجى المحاولة مرة أخرى والتأكد من عمل السيرفر.'));
       } finally {
         btn.disabled = false;
         btn.innerHTML = originalHtml;
@@ -1502,7 +1630,7 @@ tailwind.config = {
         const response = await fetch('/api/new_api/safe_browser', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ token: acc.token, platform: acc.platform || 'twitter' })
+          body: JSON.stringify({ token: acc.token, platform: acc.platform || 'twitter', accountId: acc.id })
         });
 
         const data = await response.json();

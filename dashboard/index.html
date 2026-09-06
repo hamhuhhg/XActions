@@ -48,6 +48,7 @@
   <script src="js/features/trends.js"></script>
   <script src="js/features/ai_chat.js"></script>
   <script src="js/features/campaigns.js"></script>
+  <script src="js/main.js"></script>
 </head>
 
 <body
@@ -55,29 +56,44 @@
   <!-- Sidebar Navigation -->
   <aside
     class="w-64 bg-darkcard border-r border-darkborder flex flex-col h-screen sticky top-0 shadow-2xl z-20 transition-all duration-300">
-    <div class="p-6 flex items-center gap-3 border-b border-darkborder">
-      <div
-        class="w-10 h-10 rounded-xl bg-gradient-to-br from-brand-400 to-blue-600 flex items-center justify-center shadow-lg shadow-brand-500/20">
-        <i class="fa-brands fa-x-twitter text-white text-xl"></i>
+    <div class="p-5 flex items-center gap-3 border-b border-darkborder">
+      <div id="sidebar-logo-badge"
+        class="w-10 h-10 rounded-xl bg-gradient-to-br from-brand-400 to-blue-600 flex items-center justify-center shadow-lg shadow-brand-500/20 transition-all">
+        <i id="sidebar-logo-icon" class="fa-brands fa-x-twitter text-white text-xl"></i>
       </div>
       <div>
         <h1 class="font-bold text-xl tracking-tight text-white">XActions</h1>
-        <p class="text-xs text-brand-400 font-medium tracking-wider uppercase">أدوات متقدمة</p>
+        <p id="sidebar-logo-sub" class="text-xs text-brand-400 font-medium tracking-wider uppercase">أدوات تويتر (X)</p>
+      </div>
+    </div>
+    <!-- Platform Switcher Tabs (Twitter vs Facebook) -->
+    <div class="px-3 pt-3 pb-2 border-b border-darkborder/70">
+      <div class="grid grid-cols-2 gap-1.5 bg-slate-900/90 p-1.5 rounded-xl border border-darkborder/80 shadow-inner">
+        <button type="button" id="platform-tab-twitter" onclick="setMainPlatform('twitter')"
+          class="flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-bold transition-all bg-brand-500/20 text-brand-400 border border-brand-500/30 shadow-sm">
+          <i class="fa-brands fa-x-twitter text-sm"></i>
+          تويتر (X)
+        </button>
+        <button type="button" id="platform-tab-facebook" onclick="setMainPlatform('facebook')"
+          class="flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-bold transition-all text-slate-400 hover:text-white border border-transparent">
+          <i class="fa-brands fa-facebook text-sm"></i>
+          فيسبوك
+        </button>
       </div>
     </div>
     <div class="flex-1 overflow-y-auto py-4 px-3 space-y-6">
       <!-- Data Scrapers Section -->
       <div>
-        <h2 class="px-3 text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">استخراج البيانات</h2>
+        <h2 id="section-scrapers-title" class="px-3 text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">استخراج البيانات</h2>
         <nav class="space-y-1" id="nav-scrapers"></nav>
       </div>
       <!-- Automation Tools Section -->
       <div>
-        <h2 class="px-3 text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">بوتات الأتمتة</h2>
+        <h2 id="section-automation-title" class="px-3 text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">بوتات الأتمتة</h2>
         <nav class="space-y-1" id="nav-automation"></nav>
       </div>
       <!-- AI Section -->
-      <div>
+      <div id="sidebar-section-ai">
         <h2 class="px-3 text-xs font-semibold text-brand-400/70 uppercase tracking-wider mb-2">الذكاء الاصطناعي</h2>
         <nav class="space-y-1" id="nav-ai"></nav>
       </div>
@@ -119,18 +135,16 @@
         <!-- Welcome State (Visible initially) -->
         <div id="welcome-state"
           class="flex flex-col items-center justify-center h-[60vh] text-center max-w-2xl mx-auto text-right">
-          <div
+          <div id="welcome-icon-box"
             class="w-24 h-24 bg-darkcard rounded-2xl flex items-center justify-center mb-6 shadow-xl border border-darkborder relative mx-auto">
-            <div class="absolute inset-0 bg-brand-500 rounded-2xl blur-xl opacity-20 animate-pulse-slow">
+            <div id="welcome-icon-glow" class="absolute inset-0 bg-brand-500 rounded-2xl blur-xl opacity-20 animate-pulse-slow">
             </div>
-            <i class="fa-solid fa-wand-magic-sparkles text-4xl text-brand-400"></i>
+            <i id="welcome-icon" class="fa-solid fa-wand-magic-sparkles text-4xl text-brand-400"></i>
           </div>
-          <h2 class="text-3xl font-bold text-white mb-4 text-center">مرحباً بك في أدوات XActions المتقدمة</h2>
-          <p class="text-slate-400 text-lg mb-8 text-center">نفذ عمليات استخراج وأتمتة قوية مباشرة من متصفحك دون الحاجة
-            لسطر الأوامر.</p>
-          <div class="grid grid-cols-2 gap-4 w-full">
+          <h2 id="welcome-title" class="text-3xl font-bold text-white mb-4 text-center">مرحباً بك في أدوات XActions المتقدمة</h2>
+          <p id="welcome-subtitle" class="text-slate-400 text-lg mb-8 text-center">نفذ عمليات استخراج وأتمتة قوية مباشرة من متصفحك دون الحاجة لسطر الأوامر.</p>
+          <div id="welcome-cards-container" class="grid grid-cols-2 gap-4 w-full">
             <div class="bg-darkcard p-4 rounded-xl border border-darkborder flex items-start gap-4 text-right">
-              <!-- Header details -->
               <div class="flex items-center gap-3">
                 <div
                   class="w-10 h-10 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center shrink-0 border border-indigo-500/30">
@@ -189,8 +203,7 @@
                   <span class="w-1.5 h-1.5 rounded-full bg-slate-500"></span> غير محدد
                 </span>
               </div>
-              <p class="text-xs text-slate-500 leading-relaxed">بعض مهام الأتمتة تتطلب رمز مصادقة نشط (auth_token). قم
-                بتعيينه من القائمة العلوية.</p>
+              <p class="text-xs text-slate-500 leading-relaxed">بعض مهام الأتمتة تتطلب رمز مصادقة نشط. قم بتعيينه من القائمة العلوية.</p>
             </div>
           </div>
           <!-- Results Terminal -->
@@ -229,95 +242,262 @@
 
   <!-- Accounts Manager Modal -->
   <div id="accounts-modal"
-    class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden flex items-center justify-center">
+    class="fixed inset-0 bg-black/85 backdrop-blur-md z-50 hidden flex items-center justify-center p-3 sm:p-5">
     <div
-      class="bg-darkcard border border-darkborder rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden transform transition-all">
-      <div class="px-6 py-4 border-b border-darkborder flex items-center justify-between bg-slate-900/50">
-        <h3 class="text-lg font-bold text-white flex items-center gap-2">
-          <i class="fa-solid fa-users text-brand-400"></i>
-          إدارة الحسابات
-        </h3>
+      class="bg-[#0b1120] border border-slate-800 rounded-2xl w-full max-w-6xl xl:max-w-7xl h-[92vh] max-h-[92vh] shadow-2xl overflow-hidden flex flex-col animate-fade-in border-t-4 border-t-brand-500">
+      
+      <!-- Header -->
+      <div class="px-6 py-3.5 border-b border-slate-800 flex flex-wrap items-center justify-between gap-4 bg-slate-900/80 shrink-0">
         <div class="flex items-center gap-3">
-          <button onclick="checkAllAccounts()" id="btn-check-all"
-            class="text-xs px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg transition border border-slate-700 flex items-center gap-2">
-            <i class="fa-solid fa-shield-halved text-brand-400"></i> فحص جميع الحسابات
+          <div class="w-10 h-10 rounded-xl bg-brand-500/10 border border-brand-500/20 flex items-center justify-center text-brand-400 shadow-sm">
+            <i class="fa-solid fa-users text-lg"></i>
+          </div>
+          <div>
+            <h3 class="text-base sm:text-lg font-bold text-white flex items-center gap-2">
+              إدارة وتخزين الحسابات
+            </h3>
+            <p class="text-xs text-slate-400">التحكم المركزي، فحص الحالة، وإدارة بيانات الدخول والمصادقة</p>
+          </div>
+        </div>
+
+        <!-- Platform Segmented Control / Tabs -->
+        <div class="bg-[#070b14] p-1 rounded-xl border border-slate-800 flex items-center shadow-inner">
+          <button id="account-tab-twitter" onclick="setAccountPlatform('twitter')"
+            class="px-4 py-1.5 font-semibold text-xs rounded-lg transition-all flex items-center gap-2 text-white bg-brand-500 shadow-sm">
+            <i class="fa-brands fa-x-twitter"></i> إكس (تويتر)
           </button>
-          <button onclick="closeAccountsManager()" class="text-slate-400 hover:text-white transition-colors p-1">
+          <button id="account-tab-facebook" onclick="setAccountPlatform('facebook')"
+            class="px-4 py-1.5 font-semibold text-xs rounded-lg transition-all flex items-center gap-2 text-slate-400 hover:text-white hover:bg-slate-800/50">
+            <i class="fa-brands fa-facebook text-blue-500"></i> فيسبوك
+          </button>
+        </div>
+
+        <!-- Header Actions -->
+        <div class="flex items-center gap-2">
+          <button onclick="openExportAccountsModal()" id="btn-export-accounts-header"
+            class="text-xs px-3 py-1.5 bg-emerald-500/15 hover:bg-emerald-600 text-emerald-400 hover:text-white rounded-lg transition border border-emerald-500/30 flex items-center gap-1.5 shadow-sm font-medium" title="تصدير الحسابات والنسخ الاحتياطي">
+            <i class="fa-solid fa-file-arrow-down"></i> <span>تصدير</span>
+          </button>
+          <button onclick="openImportAccountsModal()" id="btn-import-accounts-header"
+            class="text-xs px-3 py-1.5 bg-blue-500/15 hover:bg-blue-600 text-blue-400 hover:text-white rounded-lg transition border border-blue-500/30 flex items-center gap-1.5 shadow-sm font-medium" title="استيراد الحسابات من ملف أو نص">
+            <i class="fa-solid fa-file-arrow-up"></i> <span>استيراد</span>
+          </button>
+          <button onclick="checkAllAccounts()" id="btn-check-all"
+            class="text-xs px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg transition border border-slate-700 flex items-center gap-1.5 font-medium" title="فحص الحسابات">
+            <i class="fa-solid fa-shield-halved text-brand-400"></i> <span>فحص الكل</span>
+          </button>
+          <div class="h-5 w-px bg-slate-800 mx-1"></div>
+          <button onclick="closeAccountsManager()" class="w-8 h-8 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-colors flex items-center justify-center">
             <i class="fa-solid fa-xmark text-lg"></i>
           </button>
         </div>
       </div>
 
-      <div class="p-6">
-        <!-- Platform Tabs -->
-        <div class="flex gap-2 mb-6 border-b border-darkborder">
-           <button id="account-tab-twitter" onclick="setAccountPlatform('twitter')" class="px-4 py-2 font-bold focus:outline-none flex items-center gap-2 text-white border-b-2 border-brand-500 transition-colors">
-             <i class="fa-brands fa-x-twitter"></i> إكس (تويتر)
-           </button>
-           <button id="account-tab-facebook" onclick="setAccountPlatform('facebook')" class="px-4 py-2 font-bold focus:outline-none flex items-center gap-2 text-slate-400 border-b-2 border-transparent hover:text-white transition-colors">
-             <i class="fa-brands fa-facebook text-blue-500"></i> فيسبوك
-           </button>
-        </div>
+      <!-- Modal Main Body: 2-Column Responsive Layout -->
+      <div class="flex-1 min-h-0 p-4 sm:p-5 overflow-hidden grid grid-cols-1 lg:grid-cols-12 gap-5 bg-gradient-to-b from-[#090e1a] to-[#0b1120]">
+        
+        <!-- Right Column: Add / Edit Account Form (5 cols on lg) -->
+        <div class="lg:col-span-5 flex flex-col min-h-0 bg-[#0c1324] rounded-2xl border border-slate-800/90 shadow-xl overflow-hidden">
+          <div class="px-5 py-3 border-b border-slate-800/80 bg-slate-900/60 flex items-center justify-between shrink-0">
+            <h4 id="account-form-title" class="text-xs sm:text-sm font-bold text-white flex items-center gap-2">
+              <i class="fa-solid fa-plus text-emerald-400"></i> إضافة وتخزين حساب جديد
+            </h4>
+            <span class="text-[11px] text-slate-400 bg-slate-800/90 px-2 py-0.5 rounded-md border border-slate-700/60 flex items-center gap-1">
+              <i class="fa-solid fa-lock text-[10px] text-amber-400"></i> محمي ومشفر محلياً
+            </span>
+          </div>
 
-        <!-- Add Account Form -->
-        <div class="bg-slate-900/50 rounded-xl p-4 border border-darkborder mb-6">
-          <h4 class="text-sm font-semibold text-white mb-3 flex items-center gap-2">
-            <i class="fa-solid fa-plus text-emerald-400"></i> إضافة حساب جديد
-          </h4>
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-3">
-            <div>
-              <label class="block text-xs text-slate-400 mb-1">اسم الحساب (للتوضيح فقط)</label>
-              <input type="text" id="new-account-name" placeholder="مثال: الحساب الأساسي"
-                class="w-full bg-[#0b1120] border border-darkborder rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-brand-500">
+          <div class="p-4 sm:p-5 overflow-y-auto custom-scrollbar flex-1 space-y-3.5">
+            <!-- Basic Info: Name & Country -->
+            <div class="space-y-3">
+              <div>
+                <label class="block text-xs font-semibold text-slate-300 mb-1">اسم الحساب (للتوضيح والتمييز)</label>
+                <input type="text" id="new-account-name" placeholder="مثال: الحساب الأساسي / حساب المتجر"
+                  class="w-full bg-[#080d1a] border border-slate-700/80 rounded-xl px-3.5 py-2 text-xs sm:text-sm text-white focus:outline-none focus:border-brand-500 transition-all shadow-inner">
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-300 mb-1">دولة الحساب</label>
+                <select id="new-account-country"
+                  class="w-full bg-[#080d1a] border border-slate-700/80 rounded-xl px-3.5 py-2 text-xs sm:text-sm text-white focus:outline-none focus:border-brand-500 appearance-none bg-no-repeat bg-[url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%2394a3b8%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px_12px] bg-[position:left_14px_center] shadow-inner">
+                  <!-- Injected via JS -->
+                </select>
+              </div>
+              <!-- Avatar Field with Preview & File Picker -->
+              <div>
+                <div class="flex items-center justify-between mb-1">
+                  <label class="block text-xs font-semibold text-slate-300">الصورة الرمزية للحساب (Avatar)</label>
+                  <span class="text-[10px] text-slate-500">رابط صورة أو رفع من جهازك</span>
+                </div>
+                <div class="flex items-center gap-2">
+                  <div class="relative w-9 h-9 rounded-xl bg-[#080d1a] border border-slate-700/80 flex items-center justify-center shrink-0 overflow-hidden shadow-inner cursor-pointer hover:border-brand-500/60 transition-colors"
+                       onclick="document.getElementById('new-account-avatar-file').click()" title="انقر لاختيار صورة من جهازك">
+                    <img id="new-account-avatar-preview" src="" class="w-full h-full object-cover hidden" alt="Avatar">
+                    <div id="new-account-avatar-placeholder" class="text-slate-500 text-xs flex items-center justify-center">
+                      <i class="fa-solid fa-camera"></i>
+                    </div>
+                  </div>
+                  <div class="flex-1 relative">
+                    <input type="text" id="new-account-avatar" placeholder="https://example.com/avatar.jpg أو ارفع صورة..." dir="ltr"
+                      oninput="updateAvatarPreview(this.value)"
+                      class="w-full bg-[#080d1a] border border-slate-700/80 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-brand-500 font-mono shadow-inner">
+                    <input type="file" id="new-account-avatar-file" accept="image/*" class="hidden" onchange="handleAvatarFileSelected(event)">
+                  </div>
+                  <button type="button" onclick="document.getElementById('new-account-avatar-file').click()"
+                    class="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl text-xs border border-slate-700 flex items-center gap-1 shrink-0 transition shadow-sm" title="رفع صورة من الجهاز">
+                    <i class="fa-solid fa-upload text-[11px]"></i>
+                  </button>
+                  <button type="button" onclick="clearAvatarInput()" id="btn-clear-avatar"
+                    class="p-1.5 bg-slate-800 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 rounded-xl text-xs border border-slate-700 hidden transition" title="إزالة الصورة">
+                    <i class="fa-solid fa-xmark text-xs"></i>
+                  </button>
+                </div>
+              </div>
             </div>
-            <div>
-              <label class="block text-xs text-slate-400 mb-1">دولة الحساب</label>
-              <select id="new-account-country"
-                class="w-full bg-[#0b1120] border border-darkborder rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-brand-500 appearance-none bg-no-repeat bg-[url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%2394a3b8%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px_12px] bg-[position:left_12px_center]">
-                <!-- Injected via JS -->
-              </select>
+
+            <!-- Credentials Box -->
+            <div class="p-3 bg-[#080d1a] rounded-xl border border-slate-800 space-y-2.5 shadow-inner">
+              <div class="flex items-center justify-between pb-1.5 border-b border-slate-800/80">
+                <span class="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                  <i class="fa-solid fa-id-card text-brand-400"></i> بيانات الاعتماد التخزينية
+                </span>
+                <span class="text-[10px] text-slate-500 font-mono">اختياري للتخزين</span>
+              </div>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <div>
+                  <label class="block text-[11px] text-slate-400 mb-1">اسم المستخدم (Username)</label>
+                  <input type="text" id="new-account-username" placeholder="@username" dir="ltr"
+                    class="w-full bg-[#0b1120] border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-brand-500 font-mono">
+                </div>
+                <div>
+                  <label class="block text-[11px] text-slate-400 mb-1">البريد الإلكتروني (Email)</label>
+                  <input type="email" id="new-account-email" placeholder="mail@example.com" dir="ltr"
+                    class="w-full bg-[#0b1120] border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-brand-500 font-mono">
+                </div>
+                <div>
+                  <label class="block text-[11px] text-slate-400 mb-1">رقم الموبايل (Phone)</label>
+                  <input type="tel" id="new-account-phone" placeholder="+9665..." dir="ltr"
+                    class="w-full bg-[#0b1120] border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-brand-500 font-mono">
+                </div>
+                <div>
+                  <label class="block text-[11px] text-slate-400 mb-1">كلمة المرور (Password)</label>
+                  <div class="relative">
+                    <input type="password" id="new-account-password" placeholder="••••••••" dir="ltr"
+                      class="w-full bg-[#0b1120] border border-slate-800 rounded-lg pl-8 pr-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-brand-500 font-mono">
+                    <button type="button" onclick="toggleFormPasswordVisibility()"
+                      class="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white transition-colors"
+                      title="إظهار أو إخفاء كلمة المرور">
+                      <i class="fa-solid fa-eye text-xs" id="toggle-form-password-icon"></i>
+                    </button>
+                  </div>
+                </div>
+              </div>
             </div>
-            <div>
-              <label class="block text-xs text-slate-400 mb-1">رمز auth_token</label>
-              <div class="flex gap-2">
-                <input type="password" id="new-account-token" placeholder="رمز المصادقة..."
-                  class="flex-1 w-full bg-[#0b1120] border border-darkborder rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-brand-500 font-mono"
-                  dir="ltr">
+
+            <!-- Token / Cookies Section -->
+            <div class="space-y-1.5">
+              <div class="flex items-center justify-between">
+                <label class="block text-xs font-semibold text-slate-300" id="account-token-label">رمز المصادقة / الكعكات (للأتمتة والنشر)</label>
                 <button type="button" id="btn-browser-login" onclick="loginWithBrowser()"
-                  class="bg-blue-600/20 text-blue-400 hover:bg-blue-600 hover:text-white border border-blue-500/30 font-medium px-3 py-2 rounded-lg text-xs transition-colors whitespace-nowrap flex items-center gap-2"
+                  class="bg-blue-600/20 text-blue-400 hover:bg-blue-600 hover:text-white border border-blue-500/30 font-medium px-2.5 py-1 rounded-lg text-xs transition-colors whitespace-nowrap flex items-center gap-1.5"
                   title="استخراج التوكن عبر المتصفح تلقائياً">
                   <i class="fa-solid fa-globe" id="login-browser-icon"></i> تسجيل بالمتصفح
                 </button>
               </div>
+              <textarea id="new-account-token" placeholder="رمز المصادقة (auth_token) أو كوكيز فيسبوك..." rows="2"
+                class="w-full bg-[#080d1a] border border-slate-700/80 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-brand-500 font-mono resize-y shadow-inner"
+                dir="ltr"></textarea>
+              <span class="text-[10px] text-slate-500 block">يقبل JSON كامل، أو كود التصدير، أو نص الكوكيز المنسوخ</span>
+            </div>
+
+            <!-- Notes Section -->
+            <div class="space-y-1">
+              <label class="block text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+                <i class="fa-solid fa-note-sticky text-amber-400"></i> ملاحظات للحساب
+              </label>
+              <textarea id="new-account-notes" placeholder="أضف ملاحظات خاصة بهذا الحساب (الغرض، المالك، تاريخ التفعيل، مهام...)" rows="2"
+                class="w-full bg-[#080d1a] border border-slate-700/80 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-brand-500 resize-y shadow-inner"></textarea>
             </div>
           </div>
-          <div>
+
+          <!-- Bottom Action Buttons -->
+          <div class="p-4 border-t border-slate-800/80 bg-slate-900/60 shrink-0 flex gap-2">
             <button onclick="addAccount()" id="save-account-btn"
-              class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-medium py-2 rounded-lg text-sm transition-colors">
-              حفظ الحساب <i class="fa-solid fa-check ml-1"></i>
+              class="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-medium py-2 rounded-xl text-xs sm:text-sm transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-900/20">
+              <span>حفظ الحساب</span> <i class="fa-solid fa-check text-xs"></i>
             </button>
           </div>
         </div>
 
-        <!-- Accounts List -->
-        <div>
-          <div class="flex items-center justify-between mb-3 border-b border-darkborder/50 pb-2">
-            <h4 class="text-sm font-semibold text-white">الحسابات المحفوظة</h4>
-            <div class="flex items-center gap-2">
-              <label class="text-xs text-slate-400">تصفية:</label>
-              <select id="filter-accounts-country" onchange="currentCountryFilter = this.value; renderAccountsList();"
-                class="bg-[#0b1120] border border-darkborder rounded p-1 text-xs text-slate-300 focus:outline-none focus:border-brand-500 appearance-none bg-no-repeat bg-[url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%2394a3b8%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:10px_10px] bg-[position:left_6px_center] pl-5 pr-2 w-32">
-                <!-- Injected via JS -->
-              </select>
+        <!-- Left Column: Accounts List (7 cols on lg) -->
+        <div class="lg:col-span-7 flex flex-col min-h-0 bg-[#0c1324] rounded-2xl border border-slate-800/90 shadow-xl overflow-hidden">
+          <!-- Toolbar -->
+          <div class="p-3.5 border-b border-slate-800/80 bg-slate-900/60 flex flex-wrap items-center justify-between gap-3 shrink-0">
+            <div class="flex items-center gap-2.5">
+              <label class="flex items-center gap-1.5 cursor-pointer text-slate-400 hover:text-white" title="تحديد / إلغاء تحديد الكل">
+                <input type="checkbox" id="select-all-accounts-checkbox" onchange="toggleSelectAllAccounts(this.checked)"
+                  class="w-4 h-4 rounded bg-[#080d1a] border-slate-700 text-brand-500 focus:ring-0 cursor-pointer">
+              </label>
+              <h4 class="text-xs sm:text-sm font-bold text-white flex items-center gap-1.5">
+                <i class="fa-solid fa-list-check text-brand-400"></i> الحسابات المحفوظة
+              </h4>
+              <span id="accounts-count-badge" class="text-xs bg-brand-500/15 text-brand-400 font-bold px-2 py-0.5 rounded-full border border-brand-500/20">0</span>
+            </div>
+
+            <div class="flex items-center gap-2 flex-1 max-w-xs justify-end">
+              <!-- Search bar -->
+              <div class="relative flex-1 min-w-[120px]">
+                <i class="fa-solid fa-magnifying-glass absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 text-xs"></i>
+                <input type="text" id="filter-accounts-search" oninput="renderAccountsList()" placeholder="بحث سريع..."
+                  class="w-full bg-[#080d1a] border border-slate-700/80 rounded-lg pr-7 pl-2 py-1 text-xs text-white focus:outline-none focus:border-brand-500 shadow-inner">
+              </div>
+
+              <!-- Country dropdown filter -->
+              <div class="w-28 shrink-0">
+                <select id="filter-accounts-country" onchange="currentCountryFilter = this.value; renderAccountsList();"
+                  class="w-full bg-[#080d1a] border border-slate-700/80 rounded-lg p-1 text-xs text-slate-300 focus:outline-none focus:border-brand-500 appearance-none bg-no-repeat bg-[url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%2394a3b8%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:10px_10px] bg-[position:left_6px_center] pl-5 pr-2 shadow-inner">
+                  <!-- Injected via JS -->
+                </select>
+              </div>
             </div>
           </div>
-          <div id="accounts-list" class="space-y-2 max-h-60 overflow-y-auto pr-1 custom-scrollbar">
-            <!-- Account items will be appended here by JS -->
+
+          <!-- Multi-select Bulk Reordering Bar -->
+          <div id="accounts-bulk-actions-bar" class="px-3.5 py-2 bg-brand-500/10 border-b border-brand-500/20 flex flex-wrap items-center justify-between gap-2 hidden animate-fade-in text-xs shrink-0">
+            <div class="flex items-center gap-2">
+              <span class="font-bold text-brand-400 flex items-center gap-1.5">
+                <i class="fa-solid fa-check-double text-xs"></i>
+                تم تحديد <span id="selected-accounts-count" class="font-mono text-white bg-brand-500/30 px-1.5 py-0.5 rounded">0</span> حساب:
+              </span>
+              <button onclick="clearSelectedAccounts()" class="text-slate-400 hover:text-white underline text-[11px] mr-1">إلغاء التحديد</button>
+            </div>
+            <div class="flex items-center gap-1.5 flex-wrap">
+              <button onclick="moveSelectedAccountsToTop()" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white rounded-lg transition border border-slate-700 flex items-center gap-1 shadow-sm font-medium text-[11px]" title="نقل الحسابات المحددة إلى أعلى القائمة دفعة واحدة">
+                <i class="fa-solid fa-angles-up text-[10px] text-brand-400"></i> إلى القمة
+              </button>
+              <button onclick="moveSelectedAccountsUp()" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white rounded-lg transition border border-slate-700 flex items-center gap-1 shadow-sm font-medium text-[11px]" title="رفع الحسابات المحددة خطوة للأعلى">
+                <i class="fa-solid fa-chevron-up text-[10px] text-brand-400"></i> رفع للأعلى
+              </button>
+              <button onclick="moveSelectedAccountsDown()" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white rounded-lg transition border border-slate-700 flex items-center gap-1 shadow-sm font-medium text-[11px]" title="إنزال الحسابات المحددة خطوة للأسفل">
+                <i class="fa-solid fa-chevron-down text-[10px] text-brand-400"></i> إنزال للأسفل
+              </button>
+              <button onclick="moveSelectedAccountsToBottom()" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white rounded-lg transition border border-slate-700 flex items-center gap-1 shadow-sm font-medium text-[11px]" title="نقل الحسابات المحددة إلى أسفل القائمة دفعة واحدة">
+                <i class="fa-solid fa-angles-down text-[10px] text-brand-400"></i> إلى القاع
+              </button>
+            </div>
           </div>
-          <div id="no-accounts-msg" class="text-center py-6 text-slate-500 text-sm hidden">
-            لا توجد حسابات محفوظة بعد.
+
+          <!-- Accounts Scrollable List Area -->
+          <div class="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-3.5 space-y-2.5">
+            <div id="accounts-list" class="space-y-2.5">
+              <!-- Account items injected via JS -->
+            </div>
+            <div id="no-accounts-msg" class="text-center py-16 text-slate-500 text-sm hidden flex flex-col items-center justify-center gap-2">
+              <i class="fa-solid fa-users-slash text-3xl text-slate-600 mb-1"></i>
+              <span>لا توجد حسابات محفوظة بعد.</span>
+            </div>
           </div>
         </div>
+
       </div>
     </div>
   </div>
@@ -351,6 +531,258 @@
           </div>
         </div>
       </div>
+    </div>
+  </div>
+  <!-- Export Accounts Modal -->
+  <div id="export-accounts-modal"
+    class="fixed inset-0 bg-black/85 backdrop-blur-sm z-[70] hidden flex items-center justify-center p-4">
+    <div
+      class="bg-darkcard border border-darkborder rounded-2xl w-full max-w-md shadow-2xl overflow-hidden transform transition-all flex flex-col animate-fade-in border-t-4 border-t-emerald-500">
+      <div class="px-5 py-3.5 border-b border-darkborder flex items-center justify-between bg-slate-900/50">
+        <h3 class="text-base font-bold text-white flex items-center gap-2">
+          <i class="fa-solid fa-file-arrow-down text-emerald-400"></i>
+          تصدير الحسابات ونسخها الاحتياطي
+        </h3>
+        <button onclick="closeExportAccountsModal()" class="text-slate-400 hover:text-white transition-colors p-1">
+          <i class="fa-solid fa-xmark text-lg"></i>
+        </button>
+      </div>
+
+      <div class="p-5 space-y-4">
+        <p class="text-xs text-slate-300 leading-relaxed">
+          يتضمن التصدير جميع تفاصيل الحسابات: الرموز/الكعكات، اسم المستخدم، الإيميل، الهاتف، وكلمات المرور في ملف JSON مشفر وآمن للحفظ.
+        </p>
+
+        <div class="bg-slate-900/80 p-3.5 rounded-xl border border-slate-800 space-y-2.5">
+          <label class="block text-xs font-semibold text-slate-200">نطاق التصدير:</label>
+          <div class="space-y-2 text-xs text-slate-300">
+            <label class="flex items-center gap-2.5 cursor-pointer hover:text-white p-2 rounded-lg bg-slate-800/40 border border-slate-800">
+              <input type="radio" name="export-scope" value="current" checked class="text-emerald-500 focus:ring-0">
+              <span id="export-scope-current-label">حسابات المنصة الحالية فقط</span>
+            </label>
+            <label class="flex items-center gap-2.5 cursor-pointer hover:text-white p-2 rounded-lg bg-slate-800/40 border border-slate-800">
+              <input type="radio" name="export-scope" value="all" class="text-emerald-500 focus:ring-0">
+              <span id="export-scope-all-label">كافة الحسابات (إكس + فيسبوك)</span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div class="px-5 py-3.5 border-t border-darkborder bg-slate-900/50 flex flex-wrap justify-end gap-2">
+        <button onclick="closeExportAccountsModal()" class="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs transition-colors">
+          إلغاء
+        </button>
+        <button onclick="copyAccountsExportJson()" class="px-3.5 py-2 bg-slate-700 hover:bg-slate-600 text-white font-medium rounded-lg text-xs transition-colors flex items-center gap-1.5 shadow">
+          <i class="fa-solid fa-copy"></i> نسخ كود JSON
+        </button>
+        <button onclick="downloadAccountsExportFile()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-medium rounded-lg text-xs transition-colors flex items-center gap-1.5 shadow-md">
+          <i class="fa-solid fa-download"></i> تحميل ملف JSON
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Import Accounts Modal -->
+  <div id="import-accounts-modal"
+    class="fixed inset-0 bg-black/85 backdrop-blur-sm z-[70] hidden flex items-center justify-center p-4">
+    <div
+      class="bg-darkcard border border-darkborder rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden transform transition-all flex flex-col animate-fade-in border-t-4 border-t-blue-500">
+      <div class="px-5 py-3.5 border-b border-darkborder flex items-center justify-between bg-slate-900/50">
+        <h3 class="text-base font-bold text-white flex items-center gap-2">
+          <i class="fa-solid fa-file-arrow-up text-blue-400"></i>
+          استيراد الحسابات وجميع بياناتها
+        </h3>
+        <button onclick="closeImportAccountsModal()" class="text-slate-400 hover:text-white transition-colors p-1">
+          <i class="fa-solid fa-xmark text-lg"></i>
+        </button>
+      </div>
+
+      <div class="p-5 space-y-4">
+        <!-- Option 1: File Upload -->
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 mb-1.5">1. رفع ملف نسخة احتياطية (JSON):</label>
+          <div class="border-2 border-dashed border-slate-700 hover:border-blue-500/60 rounded-xl p-4 text-center cursor-pointer transition-colors bg-slate-900/40"
+               onclick="document.getElementById('import-accounts-file-input').click()">
+            <i class="fa-solid fa-cloud-arrow-up text-2xl text-blue-400 mb-2"></i>
+            <p class="text-xs text-slate-300 font-medium">اضغط لاختيار ملف JSON أو اسحبه هنا</p>
+            <p class="text-[11px] text-slate-500 mt-1">يدعم ملفات النسخ الاحتياطي من XActions</p>
+            <input type="file" id="import-accounts-file-input" accept=".json,application/json" class="hidden" onchange="handleAccountsFileSelected(event)">
+          </div>
+          <p id="import-file-name" class="text-xs text-blue-400 font-mono mt-1.5 hidden flex items-center gap-1">
+            <i class="fa-solid fa-check text-emerald-400"></i> تم تحديد الملف: <span id="import-file-name-text"></span>
+          </p>
+        </div>
+
+        <div class="flex items-center gap-3">
+          <div class="flex-1 h-px bg-slate-800"></div>
+          <span class="text-xs text-slate-500 font-medium">أو</span>
+          <div class="flex-1 h-px bg-slate-800"></div>
+        </div>
+
+        <!-- Option 2: Paste JSON -->
+        <div>
+          <div class="flex items-center justify-between mb-1.5">
+            <label class="block text-xs font-semibold text-slate-300">2. أو لصق كود JSON مباشرة:</label>
+            <button type="button" onclick="pasteAccountsJsonFromClipboard()" class="text-[11px] text-blue-400 hover:underline flex items-center gap-1">
+              <i class="fa-solid fa-paste"></i> لصق من الحافظة
+            </button>
+          </div>
+          <textarea id="import-accounts-json-text" placeholder='[{"name":"حساب 1","token":"...","username":"...","password":"..."}]' rows="4"
+            class="w-full bg-[#0b1120] border border-darkborder rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500 font-mono resize-y custom-scrollbar"
+            dir="ltr"></textarea>
+        </div>
+
+        <!-- Strategy Options -->
+        <div class="bg-slate-900/60 p-3 rounded-xl border border-slate-800 text-xs space-y-2">
+          <span class="text-slate-300 font-medium block">خيارات الدمج مع الحسابات الحالية:</span>
+          <div class="flex flex-col sm:flex-row gap-3 text-slate-400">
+            <label class="flex items-center gap-2 cursor-pointer hover:text-slate-200">
+              <input type="radio" name="import-strategy" value="merge" checked class="text-blue-500 focus:ring-0">
+              <span>تحديث وتكميل الحسابات المتطابقة (موصى به)</span>
+            </label>
+            <label class="flex items-center gap-2 cursor-pointer hover:text-slate-200">
+              <input type="radio" name="import-strategy" value="skip" class="text-blue-500 focus:ring-0">
+              <span>تخطي المكرر وإضافة الجديد فقط</span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div class="px-5 py-3.5 border-t border-darkborder bg-slate-900/50 flex justify-end gap-2">
+        <button onclick="closeImportAccountsModal()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs transition-colors">
+          إلغاء
+        </button>
+        <button onclick="executeAccountsImport()" id="btn-execute-import" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-medium rounded-lg text-xs transition-colors flex items-center gap-1.5 shadow-md">
+          <i class="fa-solid fa-check"></i> بدء الاستيراد الآن
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Account Profile & Details Card Modal -->
+  <div id="account-detail-modal"
+    class="fixed inset-0 bg-black/85 backdrop-blur-md z-[75] hidden flex items-center justify-center p-4">
+    <div
+      class="bg-[#0c1324] border border-slate-800 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden transform transition-all flex flex-col animate-fade-in border-t-4 border-t-brand-500">
+      
+      <!-- Card Header -->
+      <div class="p-5 border-b border-slate-800/80 bg-slate-900/70 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <div class="relative">
+            <div id="card-modal-avatar-container" class="w-13 h-13 sm:w-14 sm:h-14 rounded-2xl bg-slate-800 border-2 border-slate-700 flex items-center justify-center shadow-md overflow-hidden">
+              <!-- Avatar or icon -->
+            </div>
+            <span id="card-modal-platform-badge" class="absolute -bottom-1 -left-1 w-5 h-5 rounded-full bg-slate-900 border border-slate-700 flex items-center justify-center text-[10px] text-brand-400 shadow"></span>
+          </div>
+          <div>
+            <div class="flex items-center gap-2">
+              <h3 id="card-modal-name" class="text-base font-bold text-white leading-tight"></h3>
+              <span id="card-modal-country" class="text-sm"></span>
+            </div>
+            <div class="flex items-center gap-2 mt-1">
+              <span id="card-modal-status-badge"></span>
+              <span id="card-modal-platform-text" class="text-xs text-slate-400"></span>
+            </div>
+          </div>
+        </div>
+        <button onclick="closeAccountDetailModal()" class="w-8 h-8 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition flex items-center justify-center">
+          <i class="fa-solid fa-xmark text-lg"></i>
+        </button>
+      </div>
+
+      <!-- Card Body: Full details list with copy buttons -->
+      <div class="p-5 space-y-3 max-h-[70vh] overflow-y-auto custom-scrollbar">
+        <!-- Username -->
+        <div class="bg-[#080d1a] p-3 rounded-xl border border-slate-800/90 flex items-center justify-between">
+          <div>
+            <span class="text-[11px] text-slate-400 block mb-0.5">اسم المستخدم (Username):</span>
+            <span id="card-modal-username" class="text-xs font-mono font-semibold text-brand-400">غير محدد</span>
+          </div>
+          <button onclick="copyCardField('card-modal-username', 'اسم المستخدم')" class="p-1.5 hover:bg-slate-800 text-slate-400 hover:text-brand-400 rounded-lg transition" title="نسخ">
+            <i class="fa-solid fa-copy text-xs"></i>
+          </button>
+        </div>
+
+        <!-- Email & Phone Grid -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div class="bg-[#080d1a] p-3 rounded-xl border border-slate-800/90 flex items-center justify-between">
+            <div class="truncate">
+              <span class="text-[11px] text-slate-400 block mb-0.5">البريد الإلكتروني:</span>
+              <span id="card-modal-email" class="text-xs font-mono text-slate-200 truncate block">غير محدد</span>
+            </div>
+            <button onclick="copyCardField('card-modal-email', 'البريد الإلكتروني')" class="p-1.5 hover:bg-slate-800 text-slate-400 hover:text-white rounded-lg transition shrink-0" title="نسخ">
+              <i class="fa-solid fa-copy text-xs"></i>
+            </button>
+          </div>
+
+          <div class="bg-[#080d1a] p-3 rounded-xl border border-slate-800/90 flex items-center justify-between">
+            <div class="truncate">
+              <span class="text-[11px] text-slate-400 block mb-0.5">رقم الموبايل:</span>
+              <span id="card-modal-phone" class="text-xs font-mono text-slate-200 truncate block">غير محدد</span>
+            </div>
+            <button onclick="copyCardField('card-modal-phone', 'رقم الموبايل')" class="p-1.5 hover:bg-slate-800 text-slate-400 hover:text-white rounded-lg transition shrink-0" title="نسخ">
+              <i class="fa-solid fa-copy text-xs"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- Password with Reveal Toggle -->
+        <div class="bg-[#080d1a] p-3 rounded-xl border border-slate-800/90 flex items-center justify-between">
+          <div>
+            <span class="text-[11px] text-slate-400 block mb-0.5">كلمة المرور (Password):</span>
+            <span id="card-modal-password" data-pwd="" data-masked="true" class="text-xs font-mono text-amber-400">••••••••</span>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <button onclick="toggleCardModalPassword()" class="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-xs transition flex items-center gap-1">
+              <i class="fa-solid fa-eye text-[11px]" id="card-modal-pwd-icon"></i> <span id="card-modal-pwd-label">كشف</span>
+            </button>
+            <button onclick="copyCardModalPassword()" class="p-1.5 hover:bg-slate-800 text-slate-400 hover:text-amber-400 rounded-lg transition" title="نسخ كلمة المرور">
+              <i class="fa-solid fa-copy text-xs"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- Notes in Card Modal -->
+        <div id="card-modal-notes-container" class="bg-[#080d1a] p-3 rounded-xl border border-slate-800/90 space-y-1.5">
+          <div class="flex items-center justify-between">
+            <span class="text-[11px] text-slate-400 flex items-center gap-1.5 font-medium">
+              <i class="fa-solid fa-note-sticky text-amber-400"></i> ملاحظات الحساب:
+            </span>
+            <button onclick="copyCardField('card-modal-notes', 'ملاحظات الحساب')" class="text-[11px] text-slate-400 hover:text-white flex items-center gap-1">
+              <i class="fa-solid fa-copy text-[10px]"></i> نسخ
+            </button>
+          </div>
+          <div id="card-modal-notes" class="text-xs text-slate-200 whitespace-pre-wrap break-words bg-[#0b1120] p-2.5 rounded-lg border border-slate-800 font-sans">
+            (لا توجد ملاحظات)
+          </div>
+        </div>
+
+        <!-- Token / Cookies Preview -->
+        <div class="bg-[#080d1a] p-3 rounded-xl border border-slate-800/90 space-y-1.5">
+          <div class="flex items-center justify-between">
+            <span class="text-[11px] text-slate-400">رمز المصادقة / الكعكات:</span>
+            <button onclick="copyCardField('card-modal-token', 'رمز المصادقة')" class="text-[11px] text-blue-400 hover:underline flex items-center gap-1">
+              <i class="fa-solid fa-copy text-[10px]"></i> نسخ الرمز
+            </button>
+          </div>
+          <div id="card-modal-token" dir="ltr" class="p-2 bg-[#0b1120] border border-slate-800 rounded-lg font-mono text-[11px] text-slate-300 break-all max-h-24 overflow-y-auto custom-scrollbar select-all">
+          </div>
+        </div>
+      </div>
+
+      <!-- Card Footer Actions -->
+      <div class="p-4 border-t border-slate-800/80 bg-slate-900/60 flex flex-wrap gap-2 justify-end">
+        <button id="card-modal-copy-all-btn" onclick="" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs transition flex items-center gap-1.5">
+          <i class="fa-solid fa-clipboard text-xs"></i> نسخ كامل البيانات
+        </button>
+        <button id="card-modal-browse-btn" onclick="" class="px-3 py-2 bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-white rounded-xl text-xs transition flex items-center gap-1.5 border border-blue-500/30">
+          <i class="fa-solid fa-up-right-from-square text-xs"></i> المتصفح الآمن
+        </button>
+        <button id="card-modal-edit-btn" onclick="" class="px-4 py-2 bg-brand-500 hover:bg-brand-600 text-white font-medium rounded-xl text-xs transition flex items-center gap-1.5 shadow">
+          <i class="fa-solid fa-pen text-xs"></i> تعديل الحساب
+        </button>
+      </div>
+
     </div>
   </div>
 </body>

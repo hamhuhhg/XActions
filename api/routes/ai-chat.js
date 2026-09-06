@@ -44,6 +44,7 @@ const XACTIONS_TOOLS = [
   // Write actions
   { name: 'fb_post_timeline', description: 'Post to Facebook timeline', parameters: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] } },
   { name: 'fb_reply_comment', description: 'Reply or comment on a Facebook post', parameters: { type: 'object', properties: { postUrl: { type: 'string' }, text: { type: 'string' } }, required: ['postUrl', 'text'] } },
+  { name: 'fb_warmup_accounts', description: 'Run account warm-up and engagement campaign on Facebook. Likes a randomized number of posts on the feed with human-like delays.', parameters: { type: 'object', properties: { likesCount: { type: 'number', description: 'Base number of likes per account (default: 5)' }, variance: { type: 'number', description: 'Random variance (±) to vary likes per account (default: 2)' }, delayMin: { type: 'number', description: 'Min delay in seconds between likes (default: 5)' }, delayMax: { type: 'number', description: 'Max delay in seconds between likes (default: 12)' }, feedUrl: { type: 'string', description: 'Target feed or page URL (optional)' } } } },
   { name: 'x_post_tweet', description: 'Post a new tweet', parameters: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] } },
   { name: 'x_reply', description: 'Reply to a tweet', parameters: { type: 'object', properties: { tweetUrl: { type: 'string' }, text: { type: 'string' } }, required: ['tweetUrl', 'text'] } },
   { name: 'x_quote_tweet', description: 'Quote-tweet with commentary', parameters: { type: 'object', properties: { tweetUrl: { type: 'string' }, text: { type: 'string' } }, required: ['tweetUrl', 'text'] } },
@@ -158,7 +159,7 @@ router.post('/chat', async (req, res) => {
 
   const toolResults = [];
   let finalContent = '';
-  let currentMessages = [...messages];
+  const currentMessages = [...messages];
 
   try {
     // Agentic loop — continue until no more tool calls

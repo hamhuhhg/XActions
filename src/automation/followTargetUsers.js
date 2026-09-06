@@ -17,7 +17,8 @@
     return;
   }
 
-  const { log, sleep, randomDelay, scrollBy, clickElement, waitForElement, storage, SELECTORS } = window.XActions.Core;
+  const { log, sleep, randomDelay, scrollBy, clickElement, waitForElement, storage, SELECTORS } =
+    window.XActions.Core;
 
   // ============================================
   // CONFIGURATION
@@ -29,45 +30,45 @@
       // 'elonmusk',
       // 'naval',
     ],
-    
+
     // Which list to scrape: 'followers' or 'following'
     LIST_TYPE: 'followers',
-    
+
     // How many users to follow per target account
     MAX_FOLLOWS_PER_ACCOUNT: 20,
-    
+
     // Total maximum follows across all targets
     TOTAL_MAX_FOLLOWS: 50,
-    
+
     // -------- FILTERS --------
     FILTERS: {
       // Follower count range (0 = no limit)
       MIN_FOLLOWERS: 100,
       MAX_FOLLOWERS: 50000,
-      
+
       // Following count (detect potential follow-for-follow accounts)
       MIN_FOLLOWING: 10,
       MAX_FOLLOWING: 5000,
-      
+
       // Ratio filter (followers/following) - skip accounts with bad ratios
-      MIN_RATIO: 0.1,  // At least 10% as many followers as following
-      
+      MIN_RATIO: 0.1, // At least 10% as many followers as following
+
       // Bio filters
       MUST_HAVE_BIO: true,
-      BIO_KEYWORDS: [],  // Empty = any bio, otherwise must contain one of these
-      
+      BIO_KEYWORDS: [], // Empty = any bio, otherwise must contain one of these
+
       // Skip private/protected accounts
       SKIP_PROTECTED: true,
-      
+
       // Skip verified accounts (often don't follow back)
       SKIP_VERIFIED: false,
     },
-    
+
     // -------- TIMING --------
     DELAY_BETWEEN_FOLLOWS: 3000,
     DELAY_BETWEEN_SCROLLS: 2000,
     MAX_SCROLLS_PER_ACCOUNT: 30,
-    
+
     // -------- INTERACTION --------
     // After following, also like some of their posts
     INTERACT_AFTER_FOLLOW: false,
@@ -106,41 +107,44 @@
 
   const meetsFilters = (userInfo) => {
     const { FILTERS } = CONFIG;
-    
+
     if (FILTERS.SKIP_PROTECTED && userInfo.isProtected) {
       state.skipped.protected++;
       return false;
     }
-    
+
     if (FILTERS.SKIP_VERIFIED && userInfo.isVerified) {
       state.skipped.verified++;
       return false;
     }
-    
-    if (FILTERS.MIN_FOLLOWERS && userInfo.followers < FILTERS.MIN_FOLLOWERS) {
+
+    const followersCount =
+      typeof userInfo.followers === 'number' ? userInfo.followers : parseCount(userInfo.followers);
+
+    if (FILTERS.MIN_FOLLOWERS && followersCount < FILTERS.MIN_FOLLOWERS) {
       state.skipped.filtered++;
       return false;
     }
-    
-    if (FILTERS.MAX_FOLLOWERS && userInfo.followers > FILTERS.MAX_FOLLOWERS) {
+
+    if (FILTERS.MAX_FOLLOWERS && followersCount > FILTERS.MAX_FOLLOWERS) {
       state.skipped.filtered++;
       return false;
     }
-    
+
     if (FILTERS.MUST_HAVE_BIO && !userInfo.bio) {
       state.skipped.filtered++;
       return false;
     }
-    
+
     if (FILTERS.BIO_KEYWORDS.length > 0) {
       const bioLower = (userInfo.bio || '').toLowerCase();
-      const hasKeyword = FILTERS.BIO_KEYWORDS.some(kw => bioLower.includes(kw.toLowerCase()));
+      const hasKeyword = FILTERS.BIO_KEYWORDS.some((kw) => bioLower.includes(kw.toLowerCase()));
       if (!hasKeyword) {
         state.skipped.filtered++;
         return false;
       }
     }
-    
+
     return true;
   };
 
@@ -155,19 +159,19 @@
       isVerified: false,
       followers: 0,
     };
-    
+
     // Get username
     const link = cell.querySelector('a[href^="/"]');
     if (link) {
       info.username = link.getAttribute('href').replace('/', '').toLowerCase();
     }
-    
+
     // Check if protected (lock icon)
     info.isProtected = !!cell.querySelector('[data-testid="icon-lock"]');
-    
+
     // Check if verified
     info.isVerified = !!cell.querySelector('[data-testid="icon-verified"]');
-    
+
     // Get bio (if visible in cell)
     const spans = cell.querySelectorAll('span');
     for (const span of spans) {
@@ -177,7 +181,7 @@
       info.bio = text;
       break;
     }
-    
+
     return info;
   };
 
@@ -186,30 +190,30 @@
   // ============================================
   const interactWithUser = async (username) => {
     if (!CONFIG.INTERACT_AFTER_FOLLOW) return;
-    
+
     log(`Interacting with @${username}...`, 'action');
-    
+
     // Navigate to their profile
     window.location.href = `https://x.com/${username}`;
     await sleep(3000);
-    
+
     let liked = 0;
     const tweets = document.querySelectorAll(SELECTORS.tweet);
-    
+
     for (const tweet of tweets) {
       if (liked >= CONFIG.LIKES_PER_USER) break;
-      
+
       const likeBtn = tweet.querySelector(SELECTORS.likeButton);
       if (!likeBtn) continue;
-      
+
       // Check if not already liked
       if (tweet.querySelector(SELECTORS.unlikeButton)) continue;
-      
+
       await clickElement(likeBtn);
       liked++;
       await sleep(1000);
     }
-    
+
     if (liked > 0) {
       log(`Liked ${liked} posts from @${username}`, 'success');
     }
@@ -220,19 +224,19 @@
   // ============================================
   const processTargetAccount = async (targetUsername) => {
     log(`\n📍 Processing @${targetUsername}'s ${CONFIG.LIST_TYPE}...`, 'info');
-    
+
     // Navigate to the list
     const url = `https://x.com/${targetUsername}/${CONFIG.LIST_TYPE}`;
     window.location.href = url;
     await sleep(3000);
-    
+
     // Wait for user cells to load
     await waitForElement(SELECTORS.userCell, 10000);
-    
+
     let followedThisAccount = 0;
     let scrolls = 0;
     const processedThisSession = new Set();
-    
+
     while (
       scrolls < CONFIG.MAX_SCROLLS_PER_ACCOUNT &&
       followedThisAccount < CONFIG.MAX_FOLLOWS_PER_ACCOUNT &&
@@ -240,24 +244,24 @@
       state.isRunning
     ) {
       const cells = document.querySelectorAll(SELECTORS.userCell);
-      
+
       for (const cell of cells) {
         if (!state.isRunning) break;
         if (state.totalFollowed >= CONFIG.TOTAL_MAX_FOLLOWS) break;
         if (followedThisAccount >= CONFIG.MAX_FOLLOWS_PER_ACCOUNT) break;
-        
+
         const userInfo = getUserInfoFromCell(cell);
         if (!userInfo.username) continue;
-        
+
         // Skip if already processed this session
         if (processedThisSession.has(userInfo.username)) continue;
         processedThisSession.add(userInfo.username);
-        
+
         // Skip if already in our tracked list
         if (tracked.followed.has(userInfo.username) || tracked.processed.has(userInfo.username)) {
           continue;
         }
-        
+
         // Check if already following
         const unfollowBtn = cell.querySelector(SELECTORS.unfollowButton);
         if (unfollowBtn) {
@@ -265,31 +269,34 @@
           tracked.processed.add(userInfo.username);
           continue;
         }
-        
+
         // Check filters
         if (!meetsFilters(userInfo)) {
           tracked.processed.add(userInfo.username);
           continue;
         }
-        
+
         // Find follow button
         const followBtn = cell.querySelector(SELECTORS.followButton);
         if (!followBtn) continue;
-        
+
         // Follow the user
         await clickElement(followBtn);
         state.totalFollowed++;
         followedThisAccount++;
-        
+
         tracked.followed.set(userInfo.username, {
           at: Date.now(),
           source: `${targetUsername}/${CONFIG.LIST_TYPE}`,
         });
         tracked.processed.add(userInfo.username);
         saveTracked();
-        
-        log(`✅ Followed @${userInfo.username} [${state.totalFollowed}/${CONFIG.TOTAL_MAX_FOLLOWS}]`, 'success');
-        
+
+        log(
+          `✅ Followed @${userInfo.username} [${state.totalFollowed}/${CONFIG.TOTAL_MAX_FOLLOWS}]`,
+          'success'
+        );
+
         // Interact if enabled
         if (CONFIG.INTERACT_AFTER_FOLLOW) {
           await interactWithUser(userInfo.username);
@@ -297,16 +304,16 @@
           window.location.href = url;
           await sleep(3000);
         }
-        
+
         await randomDelay(CONFIG.DELAY_BETWEEN_FOLLOWS, CONFIG.DELAY_BETWEEN_FOLLOWS * 1.5);
       }
-      
+
       // Scroll for more
       scrollBy(600);
       scrolls++;
       await sleep(CONFIG.DELAY_BETWEEN_SCROLLS);
     }
-    
+
     log(`Finished @${targetUsername}: followed ${followedThisAccount} users`, 'info');
     return followedThisAccount;
   };
@@ -336,7 +343,7 @@
     for (const target of CONFIG.TARGET_ACCOUNTS) {
       if (!state.isRunning) break;
       if (state.totalFollowed >= CONFIG.TOTAL_MAX_FOLLOWS) break;
-      
+
       await processTargetAccount(target);
     }
 

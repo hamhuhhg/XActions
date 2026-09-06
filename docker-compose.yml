@@ -1,0 +1,66 @@
+version: '3.8'
+
+services:
+  # Redis service for Bull Queue & Job Caching
+  redis:
+    image: redis:7-alpine
+    container_name: xactions-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # XActions Express REST API Server
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: xactions-api
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - REDIS_URL=redis://redis:6379
+      - DATABASE_URL=file:./prisma/dev.db
+    env_file:
+      - .env
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./prisma:/app/prisma
+      - ./uploads:/app/uploads
+
+  # Bull Queue Background Worker
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: xactions-worker
+    restart: unless-stopped
+    command: ["npm", "run", "worker"]
+    environment:
+      - NODE_ENV=production
+      - REDIS_URL=redis://redis:6379
+      - DATABASE_URL=file:./prisma/dev.db
+    env_file:
+      - .env
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./prisma:/app/prisma
+      - ./uploads:/app/uploads
+
+volumes:
+  redis-data:
+    driver: local

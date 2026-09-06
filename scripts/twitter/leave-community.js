@@ -62,7 +62,7 @@ const CONFIG = {
   const currentCommunityId = urlMatch ? urlMatch[1] : null;
   
   // Determine which community to leave
-  let targetId = CONFIG.communityId || currentCommunityId;
+  const targetId = CONFIG.communityId || currentCommunityId;
   
   if (!targetId) {
     console.error('❌ ERROR: No community specified!');

@@ -7,7 +7,7 @@ export default defineConfig({
     testTimeout: 30000,
     hookTimeout: 30000,
     include: ['tests/**/*.test.js'],
-    exclude: ['node_modules', 'dist', 'archive'],
+    exclude: ['node_modules', 'dist', 'archive', 'tests/**/*integration*.test.js'],
     reporters: ['verbose'],
     coverage: {
       provider: 'v8',

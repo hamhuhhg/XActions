@@ -1,49 +1,70 @@
 /**
- * XActions Licensing & Telemetry
+ * XActions Licensing, Key Management & Telemetry Service
  * 
- * Lightweight enforcement:
+ * Unified licensing service:
  * - Anonymous usage ping (opt-out with XACTIONS_NO_TELEMETRY=1)
- * - License key validation for white-label
- * - "Powered by XActions" branding control
+ * - License key generation, signature verification & activation
+ * - Database persistence via Prisma
+ * - "Powered by XActions" branding control and middleware
  */
 
 import crypto from 'crypto';
-import { validateLicenseKey as dbValidateLicense, activateLicense as dbActivateLicense } from './licenseManager.js';
+import { PrismaClient } from '@prisma/client';
 
-// License key format: XACT-XXXX-XXXX-XXXX-XXXX
+const prisma = new PrismaClient();
+
+// License key format: XACT-TIER-XXXX-XXXX-SIGN
 const LICENSE_PREFIX = 'XACT';
+
+// Tier codes for key generation
+const TIER_CODES = {
+  starter: 'STRT',
+  business: 'BUSI',
+  enterprise: 'ENTR',
+};
 
 // Features unlocked by license tiers
 const LICENSE_TIERS = {
   free: {
     showBranding: true,
     maxUsers: 100,
+    maxInstances: 1,
     customDomain: false,
     whiteLabel: false,
     apiAccess: false,
+    price: 0,
   },
   starter: {
     showBranding: true,
     maxUsers: 500,
+    maxInstances: 1,
     customDomain: true,
     whiteLabel: false,
     apiAccess: false,
+    price: 49,
   },
   business: {
     showBranding: false,
     maxUsers: 5000,
+    maxInstances: 3,
     customDomain: true,
     whiteLabel: true,
     apiAccess: true,
+    price: 199,
   },
   enterprise: {
     showBranding: false,
     maxUsers: -1, // unlimited
+    maxInstances: -1,
     customDomain: true,
     whiteLabel: true,
     apiAccess: true,
-  }
+    price: 'custom',
+  },
 };
+
+// Alias for backward compatibility
+const TIER_FEATURES = LICENSE_TIERS;
 
 // In-memory cache
 let cachedLicense = null;
@@ -55,11 +76,9 @@ let instanceId = null;
 function getInstanceId() {
   if (instanceId) return instanceId;
   
-  // Use env var if set, otherwise generate
   if (process.env.XACTIONS_INSTANCE_ID) {
     instanceId = process.env.XACTIONS_INSTANCE_ID;
   } else {
-    // Generate from hostname + random
     const hostname = process.env.HOSTNAME || process.env.RAILWAY_SERVICE_NAME || 'unknown';
     instanceId = crypto.createHash('sha256')
       .update(`${hostname}-${Date.now()}-${Math.random()}`)
@@ -74,7 +93,6 @@ function getInstanceId() {
  * Send anonymous usage ping (opt-out with XACTIONS_NO_TELEMETRY=1)
  */
 async function sendTelemetryPing() {
-  // Respect opt-out
   if (process.env.XACTIONS_NO_TELEMETRY === '1') {
     console.log('📊 Telemetry disabled (XACTIONS_NO_TELEMETRY=1)');
     return;
@@ -90,12 +108,11 @@ async function sendTelemetryPing() {
       timestamp: new Date().toISOString(),
     };
     
-    // Fire and forget - don't block startup
     fetch('https://telemetry.xactions.app/ping', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(5000), // 5s timeout
+      signal: AbortSignal.timeout(5000),
     }).catch(() => {
       // Silently fail - telemetry should never break the app
     });
@@ -107,17 +124,239 @@ async function sendTelemetryPing() {
 }
 
 /**
- * Validate a license key format
+ * Generate a random segment for license key
  */
-function isValidKeyFormat(key) {
-  if (!key) return false;
-  // XACT-XXXX-XXXX-XXXX-XXXX
-  const pattern = /^XACT-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/;
-  return pattern.test(key);
+function generateSegment(length = 4) {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // No I, O, 0, 1 to avoid confusion
+  let segment = '';
+  for (let i = 0; i < length; i++) {
+    segment += chars.charAt(crypto.randomInt(chars.length));
+  }
+  return segment;
 }
 
 /**
- * Validate license key (checks database)
+ * Generate a new license key
+ * Format: XACT-TIER-XXXX-XXXX-SIGN
+ */
+function generateLicenseKey(tier) {
+  const tierCode = TIER_CODES[tier] || 'STRT';
+  const segment1 = generateSegment(4);
+  const segment2 = generateSegment(4);
+  
+  const signature = crypto.createHash('sha256')
+    .update(`${tierCode}${segment1}${segment2}${process.env.JWT_SECRET || 'xactions'}`)
+    .digest('hex')
+    .substring(0, 4)
+    .toUpperCase();
+  
+  return `XACT-${tierCode}-${segment1}-${segment2}-${signature}`;
+}
+
+/**
+ * Verify license key signature
+ */
+function verifyKeySignature(key) {
+  if (!key || typeof key !== 'string') return false;
+  const parts = key.split('-');
+  if (parts.length !== 5 || parts[0] !== LICENSE_PREFIX) return false;
+  
+  const [, tierCode, segment1, segment2, signature] = parts;
+  
+  const expectedSignature = crypto.createHash('sha256')
+    .update(`${tierCode}${segment1}${segment2}${process.env.JWT_SECRET || 'xactions'}`)
+    .digest('hex')
+    .substring(0, 4)
+    .toUpperCase();
+  
+  return signature === expectedSignature;
+}
+
+/**
+ * Validate a license key format
+ */
+function isValidKeyFormat(key) {
+  return verifyKeySignature(key);
+}
+
+/**
+ * Create a new license in the database
+ */
+async function createLicense(options) {
+  const {
+    tier = 'starter',
+    customerName,
+    customerEmail,
+    companyName,
+    expiresAt,
+    maxInstances,
+    notes,
+    paymentId,
+    amountPaid,
+  } = options;
+
+  const features = LICENSE_TIERS[tier] || LICENSE_TIERS.starter;
+  const key = generateLicenseKey(tier);
+
+  const license = await prisma.license.create({
+    data: {
+      key,
+      tier,
+      customerName,
+      customerEmail,
+      companyName,
+      maxUsers: features.maxUsers,
+      maxInstances: maxInstances || features.maxInstances,
+      whiteLabel: features.whiteLabel,
+      customDomain: features.customDomain,
+      apiAccess: features.apiAccess,
+      expiresAt: expiresAt || null,
+      paymentId,
+      amountPaid,
+      notes,
+    },
+  });
+
+  return license;
+}
+
+/**
+ * Validate a license key against the database
+ */
+async function validateLicenseKey(key) {
+  if (!key || !verifyKeySignature(key)) {
+    return { valid: false, error: 'Invalid license key format' };
+  }
+
+  const license = await prisma.license.findUnique({
+    where: { key },
+  });
+
+  if (!license) {
+    return { valid: false, error: 'License key not found' };
+  }
+
+  if (license.status === 'revoked') {
+    return { valid: false, error: 'License has been revoked' };
+  }
+
+  if (license.status === 'suspended') {
+    return { valid: false, error: 'License is suspended' };
+  }
+
+  if (license.expiresAt && new Date(license.expiresAt) < new Date()) {
+    return { valid: false, error: 'License has expired' };
+  }
+
+  return {
+    valid: true,
+    tier: license.tier,
+    features: {
+      maxUsers: license.maxUsers,
+      maxInstances: license.maxInstances,
+      whiteLabel: license.whiteLabel,
+      customDomain: license.customDomain,
+      apiAccess: license.apiAccess,
+      showBranding: !license.whiteLabel,
+    },
+    expiresAt: license.expiresAt,
+    customer: {
+      name: license.customerName,
+      email: license.customerEmail,
+      company: license.companyName,
+    },
+  };
+}
+
+/**
+ * Activate a license on an instance
+ */
+async function activateLicense(key, instId) {
+  const license = await prisma.license.findUnique({
+    where: { key },
+  });
+
+  if (!license) {
+    return { success: false, error: 'License not found' };
+  }
+
+  let instanceIds = [];
+  try {
+    instanceIds = JSON.parse(license.instanceIds || '[]');
+  } catch (e) {
+    instanceIds = [];
+  }
+
+  if (instanceIds.includes(instId)) {
+    return { success: true, message: 'Already activated on this instance' };
+  }
+
+  if (license.maxInstances !== -1 && instanceIds.length >= license.maxInstances) {
+    return { success: false, error: `Maximum instances (${license.maxInstances}) reached` };
+  }
+
+  instanceIds.push(instId);
+
+  await prisma.license.update({
+    where: { key },
+    data: {
+      instanceIds: JSON.stringify(instanceIds),
+      activations: license.activations + 1,
+      lastActivatedAt: new Date(),
+    },
+  });
+
+  return { success: true, message: 'License activated successfully' };
+}
+
+/**
+ * Revoke a license
+ */
+async function revokeLicense(key, reason) {
+  const license = await prisma.license.update({
+    where: { key },
+    data: {
+      status: 'revoked',
+      notes: reason ? `Revoked: ${reason}` : 'Revoked by admin',
+    },
+  });
+
+  return license;
+}
+
+/**
+ * List all licenses
+ */
+async function listLicenses(options = {}) {
+  const { status, tier, limit = 100, offset = 0 } = options;
+
+  const where = {};
+  if (status) where.status = status;
+  if (tier) where.tier = tier;
+
+  const licenses = await prisma.license.findMany({
+    where,
+    take: limit,
+    skip: offset,
+    orderBy: { createdAt: 'desc' },
+  });
+
+  const total = await prisma.license.count({ where });
+
+  return { licenses, total };
+}
+
+/**
+ * Get license by key
+ */
+async function getLicense(key) {
+  return prisma.license.findUnique({
+    where: { key },
+  });
+}
+
+/**
+ * Validate license key and activate on this instance
  */
 async function validateLicense(licenseKey) {
   if (!licenseKey || !isValidKeyFormat(licenseKey)) {
@@ -125,16 +364,14 @@ async function validateLicense(licenseKey) {
   }
   
   try {
-    // Validate against database
-    const result = await dbValidateLicense(licenseKey);
+    const result = await validateLicenseKey(licenseKey);
     
     if (!result.valid) {
       return { valid: false, tier: 'free', error: result.error };
     }
     
-    // Activate on this instance if valid
-    const instanceId = getInstanceId();
-    await dbActivateLicense(licenseKey, instanceId);
+    const currentInstanceId = getInstanceId();
+    await activateLicense(licenseKey, currentInstanceId);
     
     return {
       valid: true,
@@ -150,7 +387,7 @@ async function validateLicense(licenseKey) {
 }
 
 /**
- * Get current license status
+ * Get current active license status
  */
 async function getLicenseStatus() {
   if (cachedLicense) return cachedLicense;
@@ -222,7 +459,6 @@ async function getBrandingHtml() {
 async function initializeLicensing() {
   console.log('🔐 Initializing licensing...');
   
-  // Check license
   const license = await getLicenseStatus();
   console.log(`📜 License tier: ${license.tier}`);
   
@@ -231,7 +467,6 @@ async function initializeLicensing() {
     console.log('💡 Get a license at https://xactions.app/enterprise');
   }
   
-  // Send telemetry ping
   await sendTelemetryPing();
   
   return license;
@@ -242,11 +477,9 @@ async function initializeLicensing() {
  */
 function brandingMiddleware() {
   return async (req, res, next) => {
-    // Only inject into HTML responses
     const originalSend = res.send;
     
     res.send = async function(body) {
-      // Check if HTML and branding should be shown
       if (typeof body === 'string' && 
           body.includes('</body>') && 
           await shouldShowBranding()) {
@@ -263,6 +496,12 @@ function brandingMiddleware() {
 export {
   initializeLicensing,
   validateLicense,
+  validateLicenseKey,
+  createLicense,
+  activateLicense,
+  revokeLicense,
+  listLicenses,
+  getLicense,
   getLicenseStatus,
   shouldShowBranding,
   isFeatureEnabled,
@@ -270,5 +509,10 @@ export {
   brandingMiddleware,
   sendTelemetryPing,
   getInstanceId,
+  generateLicenseKey,
+  verifyKeySignature,
+  isValidKeyFormat,
   LICENSE_TIERS,
+  TIER_FEATURES,
+  TIER_CODES,
 };

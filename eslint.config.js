@@ -1,0 +1,103 @@
+/**
+ * ESLint Flat Configuration for XActions (Node.js ESM)
+ */
+
+export default [
+  {
+    ignores: [
+      'node_modules/**',
+      'archive/**',
+      'site/**',
+      'dashboard/**',
+      'uploads/**',
+      '**/*.py',
+    ],
+  },
+  {
+    files: ['**/*.js', '**/*.mjs'],
+    languageOptions: {
+      ecmaVersion: 'latest',
+      sourceType: 'module',
+      globals: {
+        // Node.js globals
+        console: 'readonly',
+        process: 'readonly',
+        Buffer: 'readonly',
+        global: 'readonly',
+        globalThis: 'readonly',
+        __dirname: 'readonly',
+        __filename: 'readonly',
+
+        // Timers & Async
+        setTimeout: 'readonly',
+        clearTimeout: 'readonly',
+        setInterval: 'readonly',
+        clearInterval: 'readonly',
+        setImmediate: 'readonly',
+        clearImmediate: 'readonly',
+
+        // Web APIs & Browser automation globals
+        window: 'readonly',
+        document: 'readonly',
+        navigator: 'readonly',
+        location: 'readonly',
+        sessionStorage: 'readonly',
+        localStorage: 'readonly',
+        Notification: 'readonly',
+        Blob: 'readonly',
+        File: 'readonly',
+        FormData: 'readonly',
+        Headers: 'readonly',
+        Request: 'readonly',
+        Response: 'readonly',
+        fetch: 'readonly',
+        AbortSignal: 'readonly',
+        AbortController: 'readonly',
+        URL: 'readonly',
+        URLSearchParams: 'readonly',
+        CustomEvent: 'readonly',
+        Event: 'readonly',
+        KeyboardEvent: 'readonly',
+        MouseEvent: 'readonly',
+        UIEvent: 'readonly',
+        FocusEvent: 'readonly',
+        InputEvent: 'readonly',
+        ClipboardEvent: 'readonly',
+        MutationObserver: 'readonly',
+        IntersectionObserver: 'readonly',
+        Node: 'readonly',
+        Element: 'readonly',
+        HTMLElement: 'readonly',
+        HTMLInputElement: 'readonly',
+        HTMLButtonElement: 'readonly',
+        HTMLTextAreaElement: 'readonly',
+        Image: 'readonly',
+        Audio: 'readonly',
+        WebSocket: 'readonly',
+        XMLHttpRequest: 'readonly',
+        alert: 'readonly',
+        prompt: 'readonly',
+        confirm: 'readonly',
+        crypto: 'readonly',
+
+        // Vitest test globals
+        describe: 'readonly',
+        it: 'readonly',
+        test: 'readonly',
+        expect: 'readonly',
+        beforeAll: 'readonly',
+        beforeEach: 'readonly',
+        afterAll: 'readonly',
+        afterEach: 'readonly',
+        vi: 'readonly',
+      },
+    },
+    rules: {
+      'no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
+      'no-undef': 'error',
+      'no-constant-condition': 'warn',
+      'prefer-const': 'warn',
+      'no-console': 'off',
+    },
+  },
+];

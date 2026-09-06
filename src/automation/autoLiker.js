@@ -14,30 +14,31 @@
     return;
   }
 
-  const { log, sleep, randomDelay, scrollBy, clickElement, rateLimit, storage, SELECTORS } = window.XActions.Core;
+  const { log, sleep, randomDelay, scrollBy, clickElement, rateLimit, storage, SELECTORS } =
+    window.XActions.Core;
 
   // ============================================
   // CONFIGURATION
   // ============================================
   const OPTIONS = {
     // What to like
-    LIKE_ALL: false,                    // Like everything (careful!)
+    LIKE_ALL: false, // Like everything (careful!)
     KEYWORDS: ['web3', 'crypto', 'AI'], // Only like posts containing these words
-    FROM_USERS: [],                     // Only like posts from these users (empty = all)
-    
+    FROM_USERS: [], // Only like posts from these users (empty = all)
+
     // Limits
-    MAX_LIKES: 20,                      // Max likes per session
-    MAX_SCROLL_DEPTH: 50,               // Max times to scroll down
-    
+    MAX_LIKES: 20, // Max likes per session
+    MAX_SCROLL_DEPTH: 50, // Max times to scroll down
+
     // Behavior
-    ALSO_RETWEET: false,                // Also retweet liked posts
-    MIN_DELAY: 2000,                    // Min delay between likes (ms)
-    MAX_DELAY: 5000,                    // Max delay between likes (ms)
-    
+    ALSO_RETWEET: false, // Also retweet liked posts
+    MIN_DELAY: 2000, // Min delay between likes (ms)
+    MAX_DELAY: 5000, // Max delay between likes (ms)
+
     // Filters
-    SKIP_REPLIES: true,                 // Skip reply tweets
-    SKIP_ADS: true,                     // Skip promoted tweets
-    MIN_LIKES_ON_POST: 0,               // Only like posts with at least X likes
+    SKIP_REPLIES: true, // Skip reply tweets
+    SKIP_ADS: true, // Skip promoted tweets
+    MIN_LIKES_ON_POST: 0, // Only like posts with at least X likes
   };
 
   // ============================================
@@ -50,12 +51,12 @@
   // ============================================
   // HELPER FUNCTIONS
   // ============================================
-  
+
   const matchesKeywords = (text) => {
     if (OPTIONS.LIKE_ALL) return true;
     if (OPTIONS.KEYWORDS.length === 0) return true;
     const lowerText = text.toLowerCase();
-    return OPTIONS.KEYWORDS.some(kw => lowerText.includes(kw.toLowerCase()));
+    return OPTIONS.KEYWORDS.some((kw) => lowerText.includes(kw.toLowerCase()));
   };
 
   const matchesUser = (tweetElement) => {
@@ -63,7 +64,7 @@
     const userLink = tweetElement.querySelector('a[href^="/"]');
     if (!userLink) return false;
     const username = userLink.getAttribute('href').replace('/', '').toLowerCase();
-    return OPTIONS.FROM_USERS.some(u => u.toLowerCase() === username);
+    return OPTIONS.FROM_USERS.some((u) => u.toLowerCase() === username);
   };
 
   const isAlreadyLiked = (tweetElement) => {
@@ -71,12 +72,18 @@
   };
 
   const isReply = (tweetElement) => {
-    return !!tweetElement.querySelector('[data-testid="Tweet-User-Avatar"]')?.closest('article')?.querySelector('span')?.textContent?.includes('Replying to');
+    return !!tweetElement
+      .querySelector('[data-testid="Tweet-User-Avatar"]')
+      ?.closest('article')
+      ?.querySelector('span')
+      ?.textContent?.includes('Replying to');
   };
 
   const isAd = (tweetElement) => {
-    return !!tweetElement.querySelector('[data-testid="placementTracking"]') || 
-           !!tweetElement.textContent?.includes('Promoted');
+    return (
+      !!tweetElement.querySelector('[data-testid="placementTracking"]') ||
+      !!tweetElement.textContent?.includes('Promoted')
+    );
   };
 
   const getTweetId = (tweetElement) => {
@@ -91,7 +98,7 @@
   // ============================================
   // MAIN FUNCTIONS
   // ============================================
-  
+
   const likeTweet = async (tweetElement) => {
     const likeBtn = tweetElement.querySelector(SELECTORS.likeButton);
     if (!likeBtn) return false;
@@ -106,7 +113,7 @@
       }
       rateLimit.increment('like', 'day');
       log(`Liked tweet #${likeCount}`, 'success');
-      
+
       // Optional retweet
       if (OPTIONS.ALSO_RETWEET) {
         await sleep(1000);
@@ -119,7 +126,7 @@
           log('Also retweeted', 'action');
         }
       }
-      
+
       return true;
     }
     return false;
@@ -127,7 +134,7 @@
 
   const processVisibleTweets = async () => {
     const tweets = document.querySelectorAll(SELECTORS.tweet);
-    
+
     for (const tweet of tweets) {
       // Check limits
       if (likeCount >= OPTIONS.MAX_LIKES) {
@@ -160,7 +167,7 @@
       await likeTweet(tweet);
       await randomDelay(OPTIONS.MIN_DELAY, OPTIONS.MAX_DELAY);
     }
-    
+
     return true;
   };
 
@@ -176,7 +183,7 @@
       scrollBy(800);
       scrollCount++;
       await randomDelay(1500, 3000);
-      
+
       if (scrollCount % 10 === 0) {
         log(`Progress: ${likeCount} likes, scrolled ${scrollCount}x`, 'info');
       }

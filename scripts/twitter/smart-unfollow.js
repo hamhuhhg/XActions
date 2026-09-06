@@ -172,7 +172,7 @@ const CONFIG = {
   console.log('');
   
   // Load followers
-  let myFollowers = new Set();
+  const myFollowers = new Set();
   try {
     const saved = localStorage.getItem(FOLLOWERS_KEY);
     if (saved) {

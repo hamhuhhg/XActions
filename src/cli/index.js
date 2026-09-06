@@ -2,7 +2,7 @@
 /**
  * XActions CLI
  * Command-line interface for X/Twitter automation
- * 
+ *
  * @author nich (@nichxbt) - https://github.com/nirholas
  * @see https://xactions.app
  * @license MIT
@@ -15,8 +15,19 @@ import inquirer from 'inquirer';
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
+import { fileURLToPath } from 'url';
 
 import scrapers from '../scrapers/index.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+let pkgVersion = '3.0.42';
+try {
+  const pkgData = await fs.readFile(path.join(__dirname, '../../package.json'), 'utf-8');
+  pkgVersion = JSON.parse(pkgData).version || pkgVersion;
+} catch {
+  // fallback default
+}
 
 const program = new Command();
 
@@ -58,7 +69,7 @@ function formatNumber(num) {
 program
   .name('xactions')
   .description(chalk.bold('⚡ XActions - The Complete X/Twitter Automation Toolkit'))
-  .version('3.0.0');
+  .version(pkgVersion);
 
 // ============================================================================
 // Auth Commands
@@ -242,7 +253,7 @@ program
 
 program
   .command('non-followers <username>')
-  .description('Find accounts that don\'t follow back')
+  .description("Find accounts that don't follow back")
   .option('-l, --limit <number>', 'Maximum to check', '500')
   .option('-o, --output <file>', 'Output file')
   .action(async (username, options) => {

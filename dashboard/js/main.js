@@ -1,13 +1,13 @@
 // js/main.js
 
-    // Store current data
+document.addEventListener('DOMContentLoaded', () => {
+  setMainPlatform(typeof currentMainPlatform !== 'undefined' ? currentMainPlatform : 'twitter');
+  
+  // Handle Run Button
+  const runBtn = document.getElementById('run-btn');
+  if (runBtn) {
+    runBtn.addEventListener('click', executeTool);
+  }
+});
 
-    // Tool Configurations
-    // Initialize UI
-    document.addEventListener('DOMContentLoaded', () => {
-      renderSidebarNav();
-      // Handle Run Button
-      document.getElementById('run-btn').addEventListener('click', executeTool);
-    });
-    let editingCampaignId = null;
-
+let editingCampaignId = null;

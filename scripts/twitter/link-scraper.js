@@ -143,7 +143,7 @@ const CONFIG = {
       if (!href || !href.startsWith('http')) return;
       
       // Get expanded URL from title attribute if available
-      let url = a.getAttribute('title') || href;
+      const url = a.getAttribute('title') || href;
       
       // Skip if it's a relative link or twitter internal
       if (!url.startsWith('http')) return;

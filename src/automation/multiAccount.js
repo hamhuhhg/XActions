@@ -33,7 +33,6 @@
   // ACCOUNT MANAGER
   // ============================================
   const AccountManager = {
-    
     // Get all accounts
     getAccounts: () => {
       return storage.get(ACCOUNTS_KEY) || [];
@@ -42,9 +41,9 @@
     // Add a new account
     addAccount: (username, password, notes = '') => {
       const accounts = AccountManager.getAccounts();
-      
+
       // Check if already exists
-      if (accounts.some(a => a.username.toLowerCase() === username.toLowerCase())) {
+      if (accounts.some((a) => a.username.toLowerCase() === username.toLowerCase())) {
         log(`Account @${username} already exists`, 'warning');
         return false;
       }
@@ -67,14 +66,14 @@
     removeAccount: (username) => {
       let accounts = AccountManager.getAccounts();
       const before = accounts.length;
-      accounts = accounts.filter(a => a.username.toLowerCase() !== username.toLowerCase());
-      
+      accounts = accounts.filter((a) => a.username.toLowerCase() !== username.toLowerCase());
+
       if (accounts.length < before) {
         storage.set(ACCOUNTS_KEY, accounts);
         log(`Removed account @${username}`, 'success');
         return true;
       }
-      
+
       log(`Account @${username} not found`, 'warning');
       return false;
     },
@@ -82,22 +81,22 @@
     // Update account status
     updateStatus: (username, status) => {
       const accounts = AccountManager.getAccounts();
-      const account = accounts.find(a => a.username.toLowerCase() === username.toLowerCase());
-      
+      const account = accounts.find((a) => a.username.toLowerCase() === username.toLowerCase());
+
       if (account) {
         account.status = status;
         storage.set(ACCOUNTS_KEY, accounts);
         log(`Updated @${username} status to: ${status}`, 'success');
         return true;
       }
-      
+
       return false;
     },
 
     // Get next account to use (rotation)
     getNextAccount: () => {
-      const accounts = AccountManager.getAccounts().filter(a => a.status === 'active');
-      
+      const accounts = AccountManager.getAccounts().filter((a) => a.status === 'active');
+
       if (accounts.length === 0) {
         log('No active accounts available', 'warning');
         return null;
@@ -116,8 +115,8 @@
     // Mark account as used
     markUsed: (username) => {
       const accounts = AccountManager.getAccounts();
-      const account = accounts.find(a => a.username.toLowerCase() === username.toLowerCase());
-      
+      const account = accounts.find((a) => a.username.toLowerCase() === username.toLowerCase());
+
       if (account) {
         account.lastUsed = Date.now();
         storage.set(ACCOUNTS_KEY, accounts);
@@ -133,31 +132,32 @@
     // List all accounts
     listAccounts: () => {
       const accounts = AccountManager.getAccounts();
-      
+
       console.log('\n' + '='.repeat(60));
       console.log('📋 ACCOUNT LIST');
       console.log('='.repeat(60));
-      
+
       if (accounts.length === 0) {
         console.log('No accounts added yet.');
         console.log('Use: XActions.Accounts.add("username", "password")');
       } else {
         accounts.forEach((a, i) => {
           const lastUsed = a.lastUsed ? new Date(a.lastUsed).toLocaleString() : 'Never';
-          const statusEmoji = {
-            active: '✅',
-            paused: '⏸️',
-            limited: '⚠️',
-            suspended: '❌',
-          }[a.status] || '❓';
-          
+          const statusEmoji =
+            {
+              active: '✅',
+              paused: '⏸️',
+              limited: '⚠️',
+              suspended: '❌',
+            }[a.status] || '❓';
+
           console.log(`\n${i + 1}. @${a.username} ${statusEmoji}`);
           console.log(`   Status: ${a.status}`);
           console.log(`   Last used: ${lastUsed}`);
           if (a.notes) console.log(`   Notes: ${a.notes}`);
         });
       }
-      
+
       console.log('\n' + '='.repeat(60));
       return accounts;
     },
@@ -166,7 +166,7 @@
     exportAccounts: () => {
       const accounts = AccountManager.getAccounts();
       const data = JSON.stringify(accounts, null, 2);
-      
+
       const blob = new Blob([data], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -175,7 +175,7 @@
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      
+
       log('⚠️ Exported accounts. Keep this file secure!', 'warning');
     },
 
@@ -184,17 +184,17 @@
       try {
         const imported = JSON.parse(jsonString);
         if (!Array.isArray(imported)) throw new Error('Invalid format');
-        
+
         const existing = AccountManager.getAccounts();
         let added = 0;
-        
+
         for (const account of imported) {
-          if (!existing.some(e => e.username === account.username)) {
+          if (!existing.some((e) => e.username === account.username)) {
             existing.push(account);
             added++;
           }
         }
-        
+
         storage.set(ACCOUNTS_KEY, existing);
         log(`Imported ${added} new accounts`, 'success');
         return added;
@@ -210,23 +210,23 @@
       const lines = text.trim().split('\n');
       let added = 0;
       let skipped = 0;
-      
+
       for (const line of lines) {
         const trimmed = line.trim();
         if (!trimmed || trimmed.startsWith('#')) continue; // Skip empty lines and comments
-        
+
         // Support multiple formats:
         // user:pass
         // user,pass
         // user;pass
         // user\tpass (tab separated)
         const parts = trimmed.split(/[:;,\t]/);
-        
+
         if (parts.length >= 1) {
           const username = parts[0].trim().replace('@', '').toLowerCase();
           const password = parts[1]?.trim() || '';
           const notes = parts[2]?.trim() || '';
-          
+
           if (username) {
             const success = AccountManager.addAccount(username, password, notes);
             if (success) added++;
@@ -234,7 +234,7 @@
           }
         }
       }
-      
+
       log(`Imported ${added} accounts (${skipped} skipped/duplicates)`, 'success');
       return added;
     },
@@ -242,15 +242,15 @@
     // Export accounts as simple text format
     exportAsText: () => {
       const accounts = AccountManager.getAccounts();
-      const lines = accounts.map(a => {
+      const lines = accounts.map((a) => {
         let line = a.username;
         if (a.password) line += ':' + a.password;
         if (a.notes) line += ':' + a.notes;
         return line;
       });
-      
+
       const text = lines.join('\n');
-      
+
       const blob = new Blob([text], { type: 'text/plain' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -259,11 +259,11 @@
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      
+
       log('Exported accounts as text file', 'success');
       console.log('\nFormat: username:password:notes');
       console.log('Preview:\n' + text.substring(0, 200) + (text.length > 200 ? '...' : ''));
-      
+
       return text;
     },
 
@@ -279,10 +279,9 @@
   // ACCOUNT STATS
   // ============================================
   const AccountStats = {
-    
     record: (username, action, count = 1) => {
       const stats = storage.get(ACCOUNT_STATS_KEY) || {};
-      
+
       if (!stats[username]) {
         stats[username] = {
           follows: 0,
@@ -292,10 +291,10 @@
           sessions: 0,
         };
       }
-      
+
       stats[username][action] = (stats[username][action] || 0) + count;
       stats[username].lastAction = Date.now();
-      
+
       storage.set(ACCOUNT_STATS_KEY, stats);
     },
 
@@ -310,11 +309,11 @@
 
     show: () => {
       const stats = AccountStats.getAll();
-      
+
       console.log('\n' + '='.repeat(60));
       console.log('📊 ACCOUNT STATISTICS');
       console.log('='.repeat(60));
-      
+
       for (const [username, data] of Object.entries(stats)) {
         console.log(`\n@${username}:`);
         console.log(`   Follows: ${data.follows || 0}`);
@@ -323,7 +322,7 @@
         console.log(`   Comments: ${data.comments || 0}`);
         console.log(`   Sessions: ${data.sessions || 0}`);
       }
-      
+
       console.log('\n' + '='.repeat(60));
     },
   };
@@ -332,7 +331,6 @@
   // LOGIN HELPER
   // ============================================
   const LoginHelper = {
-    
     // Check if currently logged in
     isLoggedIn: () => {
       return !!document.querySelector('[data-testid="SideNav_AccountSwitcher_Button"]');
@@ -360,15 +358,16 @@
       if (switcher) {
         switcher.click();
         await sleep(500);
-        
+
         // Look for logout option
-        const logoutBtn = [...document.querySelectorAll('[role="menuitem"]')]
-          .find(el => el.textContent.includes('Log out'));
-        
+        const logoutBtn = [...document.querySelectorAll('[role="menuitem"]')].find((el) =>
+          el.textContent.includes('Log out')
+        );
+
         if (logoutBtn) {
           logoutBtn.click();
           await sleep(500);
-          
+
           // Confirm logout
           const confirmBtn = document.querySelector('[data-testid="confirmationSheetConfirm"]');
           if (confirmBtn) confirmBtn.click();
@@ -409,10 +408,10 @@
     import: AccountManager.importAccounts,
     importText: AccountManager.importFromText,
     clear: AccountManager.clearAll,
-    
+
     // Stats
     stats: AccountStats,
-    
+
     // Login
     login: LoginHelper,
   };

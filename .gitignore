@@ -124,7 +124,6 @@ CLAUDE.local.md
 *.xls*
 
 prd
-GEMINI.md
 e2e/reports
 
 # Sentry Config File
@@ -132,3 +131,19 @@ e2e/reports
 .vercel
 
 *.pyc
+__pycache__/
+
+# Uploads directory
+uploads/*
+!uploads/.gitkeep
+
+# Debug snapshots, error screenshots, and temporary dumps
+*_snapshot.json
+debug_*
+fb_post_*.png
+fb_login_*.png
+*.backup
+*.bak
+scratch/
+
+/solver/browser_profiles

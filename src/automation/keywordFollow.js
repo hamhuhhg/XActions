@@ -14,7 +14,17 @@
     return;
   }
 
-  const { log, sleep, randomDelay, scrollBy, clickElement, waitForElement, storage, rateLimit, SELECTORS } = window.XActions.Core;
+  const {
+    log,
+    sleep,
+    randomDelay,
+    scrollBy,
+    clickElement,
+    waitForElement,
+    storage,
+    rateLimit,
+    SELECTORS,
+  } = window.XActions.Core;
 
   // ============================================
   // CONFIGURATION
@@ -22,18 +32,18 @@
   const OPTIONS = {
     // Search terms (will search each one)
     KEYWORDS: ['web3 developer', 'solidity engineer', 'crypto founder'],
-    
+
     // Follow settings
     MAX_FOLLOWS_PER_KEYWORD: 10,
     MAX_FOLLOWS_TOTAL: 30,
-    
+
     // Filters
-    MIN_FOLLOWERS: 100,           // Skip users with fewer followers
-    MAX_FOLLOWERS: 100000,        // Skip mega accounts
-    MUST_HAVE_BIO: true,          // Skip users without bio
-    BIO_KEYWORDS: [],             // Bio must contain one of these (empty = any)
-    SKIP_IF_FOLLOWING: true,      // Skip users you already follow
-    
+    MIN_FOLLOWERS: 100, // Skip users with fewer followers
+    MAX_FOLLOWERS: 100000, // Skip mega accounts
+    MUST_HAVE_BIO: true, // Skip users without bio
+    BIO_KEYWORDS: [], // Bio must contain one of these (empty = any)
+    SKIP_IF_FOLLOWING: true, // Skip users you already follow
+
     // Timing
     DELAY_BETWEEN_FOLLOWS: 3000,
     DELAY_BETWEEN_SEARCHES: 10000,
@@ -62,11 +72,11 @@
   // ============================================
   const searchFor = async (keyword) => {
     log(`Searching for: "${keyword}"`, 'action');
-    
+
     // Navigate to search
     const searchUrl = `https://x.com/search?q=${encodeURIComponent(keyword)}&src=typed_query&f=user`;
     window.location.href = searchUrl;
-    
+
     // Wait for page load
     await sleep(3000);
     await waitForElement(SELECTORS.userCell, 10000);
@@ -80,13 +90,13 @@
     try {
       const link = userCell.querySelector('a[href^="/"]');
       const username = link?.getAttribute('href')?.replace('/', '') || '';
-      
+
       const nameEl = userCell.querySelector('[dir="ltr"] > span');
       const displayName = nameEl?.textContent || username;
-      
+
       const bioEl = userCell.querySelector('[data-testid="UserDescription"]');
       const bio = bioEl?.textContent || '';
-      
+
       // Try to get follower count (might not always be visible)
       const statsText = userCell.textContent || '';
       const followerMatch = statsText.match(/(\d+(?:,\d+)*(?:\.\d+)?[KMB]?)\s*Followers/i);
@@ -94,10 +104,10 @@
       if (followerMatch) {
         followers = parseFollowerCount(followerMatch[1]);
       }
-      
+
       const isFollowing = !!userCell.querySelector(SELECTORS.unfollowButton);
       const followsYou = !!userCell.querySelector(SELECTORS.userFollowIndicator);
-      
+
       return { username, displayName, bio, followers, isFollowing, followsYou };
     } catch (e) {
       return null;
@@ -119,36 +129,36 @@
   // ============================================
   const passesFilters = (userInfo) => {
     if (!userInfo || !userInfo.username) return false;
-    
+
     // Already following
     if (OPTIONS.SKIP_IF_FOLLOWING && userInfo.isFollowing) {
       return false;
     }
-    
+
     // Already in our tracked list
     if (followedUsers.has(userInfo.username.toLowerCase())) {
       return false;
     }
-    
+
     // Bio requirement
     if (OPTIONS.MUST_HAVE_BIO && !userInfo.bio) {
       return false;
     }
-    
+
     // Bio keywords
     if (OPTIONS.BIO_KEYWORDS.length > 0) {
       const bioLower = userInfo.bio.toLowerCase();
-      if (!OPTIONS.BIO_KEYWORDS.some(kw => bioLower.includes(kw.toLowerCase()))) {
+      if (!OPTIONS.BIO_KEYWORDS.some((kw) => bioLower.includes(kw.toLowerCase()))) {
         return false;
       }
     }
-    
+
     // Follower count (if available)
     if (userInfo.followers > 0) {
       if (userInfo.followers < OPTIONS.MIN_FOLLOWERS) return false;
       if (userInfo.followers > OPTIONS.MAX_FOLLOWERS) return false;
     }
-    
+
     return true;
   };
 
@@ -178,10 +188,11 @@
     let scrolls = 0;
     const maxScrolls = 20;
 
-    while (keywordFollows < OPTIONS.MAX_FOLLOWS_PER_KEYWORD && 
-           followCount < OPTIONS.MAX_FOLLOWS_TOTAL &&
-           scrolls < maxScrolls) {
-      
+    while (
+      keywordFollows < OPTIONS.MAX_FOLLOWS_PER_KEYWORD &&
+      followCount < OPTIONS.MAX_FOLLOWS_TOTAL &&
+      scrolls < maxScrolls
+    ) {
       // Check rate limit
       if (!rateLimit.check('follow', 100, 'day')) {
         log('Daily follow limit reached', 'warning');
@@ -189,7 +200,7 @@
       }
 
       const userCells = document.querySelectorAll(SELECTORS.userCell);
-      
+
       for (const cell of userCells) {
         if (keywordFollows >= OPTIONS.MAX_FOLLOWS_PER_KEYWORD) break;
         if (followCount >= OPTIONS.MAX_FOLLOWS_TOTAL) break;
@@ -198,10 +209,10 @@
         if (!passesFilters(userInfo)) continue;
 
         log(`Found match: @${userInfo.username} - "${userInfo.bio?.substring(0, 50)}..."`, 'info');
-        
+
         await followUser(cell, userInfo);
         keywordFollows++;
-        
+
         await randomDelay(OPTIONS.DELAY_BETWEEN_FOLLOWS, OPTIONS.DELAY_BETWEEN_FOLLOWS * 1.5);
       }
 
@@ -225,10 +236,10 @@
 
     for (const keyword of OPTIONS.KEYWORDS) {
       if (followCount >= OPTIONS.MAX_FOLLOWS_TOTAL) break;
-      
+
       await searchFor(keyword);
       await processSearchResults(keyword);
-      
+
       if (OPTIONS.KEYWORDS.indexOf(keyword) < OPTIONS.KEYWORDS.length - 1) {
         log(`Waiting before next search...`, 'info');
         await sleep(OPTIONS.DELAY_BETWEEN_SEARCHES);

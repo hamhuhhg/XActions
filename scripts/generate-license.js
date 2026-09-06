@@ -7,7 +7,7 @@
  *   node scripts/generate-license.js --tier=enterprise --company="Big Tech Inc" --expires=365
  */
 
-import { createLicense, listLicenses, revokeLicense, TIER_FEATURES } from '../api/services/licenseManager.js';
+import { createLicense, listLicenses, revokeLicense, TIER_FEATURES } from '../api/services/licensing.js';
 
 // Parse command line arguments
 const args = process.argv.slice(2);
