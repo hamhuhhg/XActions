@@ -90,6 +90,7 @@ class SessionManager:
             os.path.join(os.path.dirname(__file__), "..", "browser_profiles", safe_sid)
         )
         os.makedirs(profile_dir, exist_ok=True)
+        prune_profile_bloat(profile_dir)
 
         acquired = False
         try:
@@ -152,6 +153,15 @@ class SessionManager:
 
         await _stop_browser(entry.browser)
         self.semaphore.release()
+
+        import os
+        import re
+        safe_sid = re.sub(r'[^a-zA-Z0-9_\-]', '_', session_id)
+        profile_dir = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", "browser_profiles", safe_sid)
+        )
+        prune_profile_bloat(profile_dir)
+
         logger.info("Destroyed session %s", session_id)
         return True
 
@@ -177,6 +187,37 @@ class SessionManager:
             await self.destroy(sid)
 
 
+def prune_profile_bloat(profile_dir: str) -> None:
+    """Removes volatile Chrome cache, metrics, and models to keep profile under 10MB while preserving cookies & sessions."""
+    import os
+    import shutil
+    if not os.path.isdir(profile_dir):
+        return
+
+    bloat_subdirs = [
+        os.path.join(profile_dir, "Default", "Cache"),
+        os.path.join(profile_dir, "Default", "Code Cache"),
+        os.path.join(profile_dir, "Default", "GPUCache"),
+        os.path.join(profile_dir, "Default", "DawnGraphiteCache"),
+        os.path.join(profile_dir, "Default", "DawnWebGPUCache"),
+        os.path.join(profile_dir, "Default", "Service Worker", "CacheStorage"),
+        os.path.join(profile_dir, "optimization_guide_model_store"),
+        os.path.join(profile_dir, "BrowserMetrics"),
+        os.path.join(profile_dir, "DeferredBrowserMetrics"),
+        os.path.join(profile_dir, "Crashpad"),
+        os.path.join(profile_dir, "GrShaderCache"),
+        os.path.join(profile_dir, "ShaderCache"),
+        os.path.join(profile_dir, "GPUPersistentCache"),
+    ]
+
+    for p in bloat_subdirs:
+        try:
+            if os.path.isdir(p):
+                shutil.rmtree(p, ignore_errors=True)
+        except Exception:
+            pass
+
+
 def _base_browser_args() -> list:
     return [
         "--no-sandbox",
@@ -188,6 +229,18 @@ def _base_browser_args() -> list:
         "--disable-software-rasterizer",
         "--disable-setuid-sandbox",
         "--no-first-run",
+        # Strict disk cache limits (max 10MB disk cache, 1MB media cache)
+        "--disk-cache-size=10485760",
+        "--media-cache-size=1048576",
+        # Disable heavy ML model downloads and hint stores in Chromium
+        "--disable-features=OptimizationGuideModelDownloading,OptimizationHints,OptimizationTargetPrediction,InterestFeedContentSuggestions,Translate",
+        # Disable background bloat and telemetry
+        "--disable-component-update",
+        "--disable-background-networking",
+        "--disable-sync",
+        "--disable-breakpad",
+        "--disable-gpu-shader-disk-cache",
+        "--metrics-recording-only=false",
     ]
 
 
@@ -197,9 +250,13 @@ async def _stop_browser(browser: Browser) -> None:
 
     pid = None
     try:
-        proc = getattr(browser, "_process", None)
+        proc = getattr(browser, "_process", None) or getattr(browser, "process", None)
         if proc and hasattr(proc, "pid"):
             pid = proc.pid
+        elif getattr(browser, "_process_pid", None):
+            pid = getattr(browser, "_process_pid")
+        elif getattr(getattr(browser, "connection", None), "browser_pid", None):
+            pid = getattr(browser.connection, "browser_pid")
     except Exception:
         pass
 

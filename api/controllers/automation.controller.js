@@ -363,7 +363,7 @@ export async function runFacebookAction(req, res) {
     res.status(500).json({ success: false, error: error.message });
   } finally {
     const accountId = req.headers['x-account-id'] || req.body?.options?.accountId;
-    await closeFbBrowser(accountId).catch(e => console.error('Error closing FB browser:', e));
+    await closeFbBrowser(accountId, authToken).catch(e => console.error('Error closing FB browser:', e));
   }
 }
 
@@ -716,10 +716,14 @@ async function executeFacebookCampaignForAccount(authToken, content, accountName
       }
     }
 
-    await closeBrowser(accountId).catch(() => {});
     console.log(`[FB Campaign] ✅ ${accountName} finished successfully!`);
   } catch (e) {
     console.error(`[FB Campaign Engine Global Error] ${accountName}: ${e.message}`);
+  } finally {
+    try {
+      const { closeBrowser } = await import('../../src/mcp/facebook-tools.js');
+      await closeBrowser(accountId, authToken).catch(() => {});
+    } catch (e) {}
   }
 }
 

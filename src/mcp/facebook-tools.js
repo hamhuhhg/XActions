@@ -16,9 +16,7 @@ import { normalizeFacebookCookies } from '../core/cookies.js';
 const activeClients = new Map();
 
 export function resolveSessionId(accountId, cookie) {
-  if (accountId && String(accountId) !== 'default' && String(accountId).trim()) {
-    return `safe_browser_facebook_${String(accountId).trim()}`;
-  }
+  // 1. Priority: Extract permanent Facebook User ID (c_user) from cookie if available
   if (cookie) {
     try {
       const cookies = normalizeFacebookCookies(cookie);
@@ -35,6 +33,12 @@ export function resolveSessionId(accountId, cookie) {
       return `safe_browser_facebook_${cMatch[1]}`;
     }
   }
+
+  // 2. If accountId is specifically a c_user or custom identifier (not 'default')
+  if (accountId && String(accountId) !== 'default' && String(accountId).trim()) {
+    return `safe_browser_facebook_${String(accountId).trim()}`;
+  }
+
   return 'safe_browser_facebook_default';
 }
 
@@ -58,20 +62,83 @@ export async function getClient(sessionIdOrOptions = 'safe_browser_facebook_defa
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const randomDelay = () => sleep(1500 + Math.random() * 3000);
 
-export async function closeBrowser(sessionIdOrAccount = null) {
-  let targetSid = null;
-  if (typeof sessionIdOrAccount === 'string') {
-    targetSid = sessionIdOrAccount.startsWith('safe_browser_') ? sessionIdOrAccount : `safe_browser_facebook_${sessionIdOrAccount}`;
+export async function closeBrowser(sessionIdOrAccount = null, cookie = null) {
+  let targetSids = [];
+
+  if (sessionIdOrAccount && typeof sessionIdOrAccount === 'object') {
+    const acc = sessionIdOrAccount.accountId || sessionIdOrAccount.id;
+    const ck = sessionIdOrAccount.cookie || sessionIdOrAccount.token || cookie;
+    if (acc || ck) {
+      targetSids.push(resolveSessionId(acc, ck));
+    }
+    if (acc) {
+      targetSids.push(String(acc).startsWith('safe_browser_') ? String(acc) : `safe_browser_facebook_${acc}`);
+    }
+  } else if (typeof sessionIdOrAccount === 'string' && sessionIdOrAccount.trim()) {
+    const raw = sessionIdOrAccount.trim();
+    targetSids.push(raw.startsWith('safe_browser_') ? raw : `safe_browser_facebook_${raw}`);
+    if (cookie) {
+      targetSids.push(resolveSessionId(raw, cookie));
+    }
   }
 
-  if (targetSid && activeClients.has(targetSid)) {
-    console.log(`[FB Browser] Closing session: ${targetSid}`);
-    const c = activeClients.get(targetSid);
-    await c.destroySession().catch(() => {});
-    activeClients.delete(targetSid);
-  } else if (!sessionIdOrAccount) {
+  if (cookie && typeof cookie === 'string') {
+    const cUserMatch = cookie.match(/"c_user"\s*:\s*"?(\d+)"?/) || cookie.match(/c_user=(\d+)/);
+    if (cUserMatch && cUserMatch[1]) {
+      targetSids.push(`safe_browser_facebook_${cUserMatch[1]}`);
+    }
+  }
+
+  // Deduplicate and filter falsy values
+  targetSids = [...new Set(targetSids.filter(Boolean))];
+
+  let closedCount = 0;
+
+  // 1. Destroy explicitly matching sessions
+  for (const sid of targetSids) {
+    if (activeClients.has(sid)) {
+      console.log(`[FB Browser] Closing matched session: ${sid}`);
+      const c = activeClients.get(sid);
+      await c.destroySession().catch(() => {});
+      activeClients.delete(sid);
+      closedCount++;
+    } else {
+      // Also send destroy request to solver directly in case client was created externally or in previous run
+      try {
+        const dummy = new TurnstileClient(sid);
+        await dummy.destroySession().catch(() => {});
+      } catch (e) {}
+    }
+  }
+
+  // 2. If an account or cookie was provided, fuzzy match against activeClients keys
+  if (sessionIdOrAccount && closedCount === 0) {
+    const queryStr = String(typeof sessionIdOrAccount === 'object' ? (sessionIdOrAccount.accountId || '') : sessionIdOrAccount).trim();
+    if (queryStr && queryStr !== 'default') {
+      for (const [sid, client] of Array.from(activeClients.entries())) {
+        if (sid.includes(queryStr)) {
+          console.log(`[FB Browser] Closing fuzzy-matched session: ${sid}`);
+          await client.destroySession().catch(() => {});
+          activeClients.delete(sid);
+          closedCount++;
+        }
+      }
+    }
+  }
+
+  // 3. Fallback: If sessionIdOrAccount was provided and only 1 active client exists, close it
+  if (sessionIdOrAccount && closedCount === 0 && activeClients.size === 1) {
+    const [soleSid, client] = activeClients.entries().next().value;
+    console.log(`[FB Browser] Fallback: Closing single active session: ${soleSid}`);
+    await client.destroySession().catch(() => {});
+    activeClients.delete(soleSid);
+    closedCount++;
+  }
+
+  // 4. If no specific account was provided, or if closedCount === 0 and !sessionIdOrAccount
+  if (!sessionIdOrAccount) {
     console.log(`[FB Browser] Closing all active sessions (${activeClients.size})...`);
-    for (const [id, c] of activeClients.entries()) {
+    for (const [id, c] of Array.from(activeClients.entries())) {
       await c.destroySession().catch(() => {});
     }
     activeClients.clear();
@@ -943,6 +1010,7 @@ export async function fb_warmup_accounts({
   feedUrl = '',
   cookie,
   accountId,
+  keepBrowserOpen = false,
 } = {}) {
   const c = await getClient({ accountId, cookie });
   if (cookie) await fb_login({ cookie, accountId });
@@ -1064,6 +1132,13 @@ export async function fb_warmup_accounts({
   } catch (error) {
     console.error('[FB Warmup Error]', error.message);
     throw error;
+  } finally {
+    if (!keepBrowserOpen) {
+      console.log(`[FB Warmup] Closing browser session for account ${accountId || 'default'}...`);
+      await closeBrowser(accountId, cookie).catch((err) => {
+        console.warn('[FB Warmup] Error closing browser in finally block:', err.message);
+      });
+    }
   }
 }
 
