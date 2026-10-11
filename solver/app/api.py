@@ -159,6 +159,7 @@ async def _dispatch(req: V1Request, start_ts: int) -> Dict[str, Any]:
             session_id=req.session,
             proxy=proxy_url,
             ttl_minutes=req.session_ttl_minutes,
+            data_saver=req.dataSaver,
         )
         return {
             "status": "ok",
@@ -390,7 +391,7 @@ async def _dispatch(req: V1Request, start_ts: int) -> Dict[str, Any]:
             timeout_ms=timeout_ms,
             return_only_cookies=req.returnOnlyCookies,
             return_screenshot=req.returnScreenshot,
-            disable_media=req.disableMedia,
+            disable_media=req.disableMedia or req.dataSaver,
             session_id=req.session,
             turnstile_input_name=req.turnstile_input_name,
         )

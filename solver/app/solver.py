@@ -234,8 +234,11 @@ async def _block_media(tab: Tab) -> None:
     if not _HAS_CDP:
         return
     patterns = [
-        "*.jpg", "*.jpeg", "*.png", "*.gif", "*.webp", "*.svg", "*.ico",
-        "*.mp4", "*.webm", "*.mp3", "*.ogg",
+        "*.jpg", "*.jpg?*", "*.jpeg", "*.jpeg?*", "*.png", "*.png?*", "*.gif", "*.gif?*",
+        "*.webp", "*.webp?*", "*.svg", "*.svg?*", "*.ico", "*.ico?*",
+        "*.mp4", "*.mp4?*", "*.m4s", "*.m4s?*", "*.m4v", "*.m4v?*",
+        "*.webm", "*.webm?*", "*.m3u8", "*.m3u8?*", "*.ts", "*.ts?*",
+        "*.mpd", "*.mpd?*", "*.mp3", "*.ogg",
         "*.woff", "*.woff2", "*.ttf", "*.eot",
     ]
     try:
@@ -243,6 +246,55 @@ async def _block_media(tab: Tab) -> None:
         await tab.send(cdp.network.set_blocked_ur_ls(urls=patterns))
     except Exception as e:
         logger.warning("Failed to block media via CDP: %s", e)
+
+    script = """
+    (() => {
+        try {
+            if (window.__dataSaverInjected) return;
+            window.__dataSaverInjected = true;
+            try {
+                Object.defineProperty(HTMLMediaElement.prototype, 'preload', {
+                    get: function() { return 'none'; },
+                    set: function() {},
+                    configurable: true
+                });
+            } catch(e) {}
+            try {
+                HTMLMediaElement.prototype.play = function() {
+                    this.pause();
+                    return Promise.reject(new Error("Media playback disabled by Data Saver"));
+                };
+            } catch(e) {}
+            const stopMedia = (el) => {
+                try {
+                    el.pause();
+                    el.removeAttribute('autoplay');
+                    el.preload = 'none';
+                } catch(e) {}
+            };
+            if (document.body) {
+                document.querySelectorAll('video, audio').forEach(stopMedia);
+            }
+            const obs = new MutationObserver((muts) => {
+                for (const m of muts) {
+                    for (const n of m.addedNodes) {
+                        if (n.nodeName === 'VIDEO' || n.nodeName === 'AUDIO') {
+                            stopMedia(n);
+                        } else if (n.querySelectorAll) {
+                            n.querySelectorAll('video, audio').forEach(stopMedia);
+                        }
+                    }
+                }
+            });
+            obs.observe(document.documentElement || document, { childList: true, subtree: true });
+        } catch(e) {}
+    })();
+    """
+    try:
+        await tab.send(cdp.page.enable())
+        await tab.send(cdp.page.add_script_to_evaluate_on_new_document(source=script))
+    except Exception as e:
+        pass
 
 
 async def _submit_post(tab: Tab, url: str, post_data: str) -> None:

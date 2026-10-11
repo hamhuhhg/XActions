@@ -298,7 +298,7 @@ export async function checkSuspension(req, res) {
  */
 export async function launchSafeBrowser(req, res) {
   try {
-    const { token, platform, accountId } = req.body;
+    const { token, platform, accountId, dataSaver } = req.body;
 
     let effectiveToken = token;
     if (accountId && accountId !== 'default') {
@@ -312,13 +312,15 @@ export async function launchSafeBrowser(req, res) {
 
     if (!effectiveToken && !token) return res.status(400).json({ success: false, error: 'auth_token is required' });
 
+    const isDataSaver = dataSaver === undefined ? '1' : (dataSaver ? '1' : '0');
     const scriptPath = path.join(process.cwd(), 'scripts', 'safe_browser.js');
     const b64Token = Buffer.from(effectiveToken || token || '').toString('base64');
     const nodeProcess = spawn('node', [
       scriptPath,
       '--token_b64', b64Token,
       '--platform', platform || 'twitter',
-      '--accountId', accountId ? String(accountId) : 'default'
+      '--accountId', accountId ? String(accountId) : 'default',
+      '--dataSaver', isDataSaver
     ], {
       detached: true,
       stdio: 'ignore',

@@ -25,6 +25,7 @@ async function main() {
     let b64Token = '';
     let platform = 'twitter';
     let accountId = 'default';
+    let dataSaver = true;
     
     for (let i = 0; i < args.length; i++) {
         if (args[i] === '--token_b64' && args[i+1]) {
@@ -33,6 +34,8 @@ async function main() {
             platform = args[i+1];
         } else if (args[i] === '--accountId' && args[i+1]) {
             accountId = args[i+1];
+        } else if (args[i] === '--dataSaver' && args[i+1]) {
+            dataSaver = args[i+1] !== '0' && args[i+1] !== 'false';
         }
     }
 
@@ -45,7 +48,8 @@ async function main() {
 
     const sessionId = `safe_browser_${platform}_${accountId}`;
     const client = new TurnstileClient(sessionId);
-    await client.createSession();
+    console.log(`[SafeBrowser] 🌐 Launching session ${sessionId} (Data Saver: ${dataSaver ? 'ON - Videos/Images blocked' : 'OFF'})...`);
+    await client.createSession(null, 60, dataSaver);
 
     if (platform === 'facebook') {
         const parsedCookies = normalizeFacebookCookies(auth_token);

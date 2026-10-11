@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     MAX_BROWSERS: int = 4
     HEADLESS: bool = False
     BROWSER_EXECUTABLE_PATH: Optional[str] = None
+    DATA_SAVER: bool = Field(default=True, validation_alias=AliasChoices("DATA_SAVER", "DATA_SAVER_ENABLED"))
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 

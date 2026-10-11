@@ -1630,7 +1630,12 @@ tailwind.config = {
         const response = await fetch('/api/new_api/safe_browser', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ token: acc.token, platform: acc.platform || 'twitter', accountId: acc.id })
+          body: JSON.stringify({
+            token: acc.token,
+            platform: acc.platform || 'twitter',
+            accountId: acc.id,
+            dataSaver: typeof isDataSaverEnabled === 'function' ? isDataSaverEnabled() : true
+          })
         });
 
         const data = await response.json();

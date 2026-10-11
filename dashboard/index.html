@@ -274,6 +274,13 @@
 
         <!-- Header Actions -->
         <div class="flex items-center gap-2">
+          <!-- Data Saver Toggle in Header -->
+          <button type="button" onclick="toggleDataSaverMode()" id="btn-toggle-data-saver"
+            class="text-xs px-3 py-1.5 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 rounded-lg transition border border-amber-500/30 flex items-center gap-1.5 shadow-sm font-medium"
+            title="تفعيل أو تعطيل وضع توفير البيانات (حظر الصور وتشغيل الفيديوهات لتوفير باقة الإنترنت)">
+            <i class="fa-solid fa-bolt text-amber-400"></i>
+            <span id="data-saver-header-label">توفير البيانات: مفعّل ⚡</span>
+          </button>
           <button onclick="openExportAccountsModal()" id="btn-export-accounts-header"
             class="text-xs px-3 py-1.5 bg-emerald-500/15 hover:bg-emerald-600 text-emerald-400 hover:text-white rounded-lg transition border border-emerald-500/30 flex items-center gap-1.5 shadow-sm font-medium" title="تصدير الحسابات والنسخ الاحتياطي">
             <i class="fa-solid fa-file-arrow-down"></i> <span>تصدير</span>
@@ -432,7 +439,7 @@
         <div class="lg:col-span-7 flex flex-col min-h-0 bg-[#0c1324] rounded-2xl border border-slate-800/90 shadow-xl overflow-hidden">
           <!-- Toolbar -->
           <div class="p-3.5 border-b border-slate-800/80 bg-slate-900/60 flex flex-wrap items-center justify-between gap-3 shrink-0">
-            <div class="flex items-center gap-2.5">
+            <div class="flex items-center gap-2.5 flex-wrap">
               <label class="flex items-center gap-1.5 cursor-pointer text-slate-400 hover:text-white" title="تحديد / إلغاء تحديد الكل">
                 <input type="checkbox" id="select-all-accounts-checkbox" onchange="toggleSelectAllAccounts(this.checked)"
                   class="w-4 h-4 rounded bg-[#080d1a] border-slate-700 text-brand-500 focus:ring-0 cursor-pointer">
@@ -441,6 +448,14 @@
                 <i class="fa-solid fa-list-check text-brand-400"></i> الحسابات المحفوظة
               </h4>
               <span id="accounts-count-badge" class="text-xs bg-brand-500/15 text-brand-400 font-bold px-2 py-0.5 rounded-full border border-brand-500/20">0</span>
+
+              <!-- Quick Data Saver Pill Toggle -->
+              <button type="button" onclick="toggleDataSaverMode()" id="data-saver-pill-btn"
+                class="text-[11px] px-2.5 py-1 rounded-lg border flex items-center gap-1.5 transition-all shadow-sm font-medium bg-amber-500/10 text-amber-300 border-amber-500/30 hover:bg-amber-500/20"
+                title="التبديل بين تفعيل أو تعطيل حظر الصور والفيديوهات لتوفير باقة الإنترنت">
+                <span id="data-saver-pill-dot" class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
+                <span id="data-saver-pill-text">توفير البيانات (مفعّل ⚡)</span>
+              </button>
             </div>
 
             <div class="flex items-center gap-2 flex-1 max-w-xs justify-end">

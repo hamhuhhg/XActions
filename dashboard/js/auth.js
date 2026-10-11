@@ -11,6 +11,7 @@
     function openAccountsManager() {
       document.getElementById('accounts-modal').classList.remove('hidden');
       renderAccountsList();
+      if (typeof updateDataSaverUI === 'function') updateDataSaverUI();
     }
     function closeAccountsManager() {
       document.getElementById('accounts-modal').classList.add('hidden');
@@ -650,6 +651,7 @@
       if (countBadge) {
         countBadge.innerText = String(filteredAccounts.length);
       }
+      if (typeof updateDataSaverUI === 'function') updateDataSaverUI();
 
       if (filteredAccounts.length === 0) {
         noMsg.classList.remove('hidden');
@@ -957,24 +959,97 @@
       }
     }
 
+    // ==========================================
+    // Data Saver Mode Logic (Bandwidth Saver)
+    // ==========================================
+    function isDataSaverEnabled() {
+      try {
+        const saved = localStorage.getItem('xactions_data_saver');
+        return saved === null ? true : (saved === '1' || saved === 'true');
+      } catch (e) {
+        return true;
+      }
+    }
+
+    function setDataSaverEnabled(enabled) {
+      try {
+        localStorage.setItem('xactions_data_saver', enabled ? '1' : '0');
+      } catch (e) {}
+      updateDataSaverUI();
+    }
+
+    function toggleDataSaverMode() {
+      const current = isDataSaverEnabled();
+      const next = !current;
+      setDataSaverEnabled(next);
+      console.log(`[Data Saver] Toggled Data Saver Mode to: ${next ? 'ON (Videos/Images blocked)' : 'OFF (Full media)'}`);
+    }
+
+    function updateDataSaverUI() {
+      const enabled = isDataSaverEnabled();
+
+      // 1. Header Button in Accounts Manager modal
+      const headerBtn = document.getElementById('btn-toggle-data-saver');
+      if (headerBtn) {
+        if (enabled) {
+          headerBtn.className = 'text-xs px-3 py-1.5 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 rounded-lg transition border border-amber-500/40 flex items-center gap-1.5 shadow-sm font-medium';
+          headerBtn.innerHTML = '<i class="fa-solid fa-bolt text-amber-400"></i><span id="data-saver-header-label">توفير البيانات: مفعّل ⚡</span>';
+          headerBtn.title = 'وضع توفير البيانات مفعّل: يتم حظر تحميل الصور والفيديوهات لتوفير باقة الإنترنت. انقر للتعطيل.';
+        } else {
+          headerBtn.className = 'text-xs px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition border border-slate-700 flex items-center gap-1.5 shadow-sm font-medium';
+          headerBtn.innerHTML = '<i class="fa-solid fa-images text-slate-400"></i><span id="data-saver-header-label">توفير البيانات: معطّل (عادي)</span>';
+          headerBtn.title = 'وضع توفير البيانات معطّل: سيتم تنزيل الصور وتشغيل الفيديوهات بشكل طبيعي. انقر للتفعيل.';
+        }
+      }
+
+      // 2. Toolbar Pill Button inside Accounts List
+      const pillBtn = document.getElementById('data-saver-pill-btn');
+      if (pillBtn) {
+        if (enabled) {
+          pillBtn.className = 'text-[11px] px-2.5 py-1 rounded-lg border flex items-center gap-1.5 transition-all shadow-sm font-medium bg-amber-500/10 text-amber-300 border-amber-500/30 hover:bg-amber-500/20';
+          pillBtn.innerHTML = '<span id="data-saver-pill-dot" class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span><span id="data-saver-pill-text">توفير البيانات (مفعّل ⚡)</span>';
+          pillBtn.title = 'وضع توفير البيانات مفعّل (الصور والفيديوهات محظورة). انقر للتعطيل.';
+        } else {
+          pillBtn.className = 'text-[11px] px-2.5 py-1 rounded-lg border flex items-center gap-1.5 transition-all shadow-sm font-medium bg-slate-800/80 text-slate-400 border-slate-700 hover:bg-slate-700 hover:text-white';
+          pillBtn.innerHTML = '<span id="data-saver-pill-dot" class="w-2 h-2 rounded-full bg-slate-500"></span><span id="data-saver-pill-text">توفير البيانات (معطّل)</span>';
+          pillBtn.title = 'وضع توفير البيانات معطّل (عرض الصور والفيديوهات طبيعي). انقر للتفعيل.';
+        }
+      }
+
+      // 3. Update all browse-btn tooltips
+      document.querySelectorAll('[id^="browse-btn-"]').forEach(btn => {
+        btn.setAttribute('title', enabled
+          ? 'فتح المتصفح الآمن (وضع توفير البيانات: مفعّل ⚡)'
+          : 'فتح المتصفح الآمن (الوضع العادي - الصور والفيديو مفعّلة)');
+      });
+    }
+
     // Safe Browser Logic
-    async function openSafeBrowser(accountId) {
+    async function openSafeBrowser(accountId, forceDataSaver = null) {
       const accIndex = xactionsAccounts.findIndex(a => String(a.id) === String(accountId));
       if (accIndex === -1) return;
 
       const acc = xactionsAccounts[accIndex];
       const btn = document.getElementById(`browse-btn-${accountId}`);
-      const originalHtml = btn.innerHTML;
+      const originalHtml = btn ? btn.innerHTML : '';
 
-      btn.disabled = true;
-      btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i>';
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i>';
+      }
 
+      const isDataSaver = forceDataSaver !== null ? !!forceDataSaver : isDataSaverEnabled();
       const base = typeof API_BASE !== 'undefined' ? API_BASE : '';
       try {
         const response = await fetch(`${base}/api/new_api/safe_browser`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ token: acc.token, platform: acc.platform || 'twitter', accountId: acc.id })
+          body: JSON.stringify({
+            token: acc.token,
+            platform: acc.platform || 'twitter',
+            accountId: acc.id,
+            dataSaver: isDataSaver
+          })
         });
 
         const data = await response.json();
@@ -986,9 +1061,9 @@
         console.error(err);
         alert('حدث خطأ أثناء الاتصال بالخادم. تأكد من عمل Python و nodriver.');
       } finally {
-        if (document.getElementById(`browse-btn-${accountId}`)) {
-          document.getElementById(`browse-btn-${accountId}`).disabled = false;
-          document.getElementById(`browse-btn-${accountId}`).innerHTML = originalHtml;
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = originalHtml;
         }
       }
     }
@@ -1662,7 +1737,16 @@
       if (copyAllBtn) copyAllBtn.onclick = () => copyAllAccountData(acc.id);
 
       const browseBtn = document.getElementById('card-modal-browse-btn');
-      if (browseBtn) browseBtn.onclick = () => openSafeBrowser(acc.id);
+      if (browseBtn) {
+        browseBtn.onclick = () => openSafeBrowser(acc.id);
+        const dataSaverActive = typeof isDataSaverEnabled === 'function' && isDataSaverEnabled();
+        browseBtn.title = dataSaverActive 
+          ? 'فتح المتصفح الآمن (وضع توفير البيانات: مفعّل ⚡)' 
+          : 'فتح المتصفح الآمن (الوضع العادي - الصور والفيديو مفعّلة)';
+        browseBtn.innerHTML = dataSaverActive
+          ? '<i class="fa-solid fa-bolt text-amber-400 text-xs"></i> المتصفح الآمن (توفير ⚡)'
+          : '<i class="fa-solid fa-up-right-from-square text-xs"></i> المتصفح الآمن (عادي)';
+      }
 
       const editBtn = document.getElementById('card-modal-edit-btn');
       if (editBtn) editBtn.onclick = () => { closeAccountDetailModal(); editAccount(acc.id); };
@@ -1725,4 +1809,15 @@
         prompt('انسخ كلمة المرور:', pwd);
       });
     }
+
+    // Initialize Data Saver UI state
+    try {
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => {
+          if (typeof updateDataSaverUI === 'function') updateDataSaverUI();
+        });
+      } else {
+        if (typeof updateDataSaverUI === 'function') updateDataSaverUI();
+      }
+    } catch(e) {}
 

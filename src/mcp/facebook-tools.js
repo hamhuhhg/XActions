@@ -667,13 +667,15 @@ export async function fb_post_timeline({ text, imagePath, mediaPath, cookie, acc
             const dialog = document.querySelector('div[role="dialog"]');
             if (!dialog) return { ready: false };
 
-            // Check for image preview in dialog
+            // Check for image preview in dialog (works even when images rendering is blocked)
             const imgs = Array.from(dialog.querySelectorAll('img')).filter(img => {
               const src = img.src || '';
               return (src.startsWith('blob:') || src.startsWith('data:') || src.includes('scontent') || src.includes('fbcdn'))
-                && !src.includes('/emoji/') && !src.includes('/rsrc.php/') && img.offsetHeight > 40;
+                && !src.includes('/emoji/') && !src.includes('/rsrc.php/');
             });
-            const hasImage = imgs.length > 0;
+            const hasMediaContainer = !!dialog.querySelector('[aria-label*="Photo"], [aria-label*="صورة"], [data-testid*="media"], div[role="img"], div[data-visualcompletion="media-vc-image"]');
+            const hasInputFileFilled = Array.from(dialog.querySelectorAll('input[type="file"]')).some(inp => inp.files && inp.files.length > 0);
+            const hasImage = imgs.length > 0 || hasInputFileFilled || hasMediaContainer;
 
             // Check for upload progress bar
             const progressBar = dialog.querySelector('[role="progressbar"], div[data-visualcompletion="loading-state"]');

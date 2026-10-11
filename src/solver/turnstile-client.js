@@ -156,11 +156,12 @@ export class TurnstileClient {
   /**
    * Create or attach to a persistent browser session
    */
-  async createSession(proxy = null, ttlMinutes = 60) {
+  async createSession(proxy = null, ttlMinutes = 60, dataSaver = true) {
     const res = await this._request('sessions.create', {
       session: this.userId,
       proxy,
       session_ttl_minutes: ttlMinutes,
+      dataSaver: dataSaver,
     });
     this.sessionId = res.session;
     return this.sessionId;
@@ -252,6 +253,8 @@ export class TurnstileClient {
       url: targetUrl,
       maxTimeout: options.timeout || 60000,
       cookies: this.userCookiesToInject.length > 0 ? this.userCookiesToInject : undefined,
+      disableMedia: options.disableMedia !== undefined ? options.disableMedia : true,
+      dataSaver: options.dataSaver !== undefined ? options.dataSaver : true,
     };
 
     const res = await this._request('request.get', payload);
@@ -278,6 +281,8 @@ export class TurnstileClient {
       postData,
       maxTimeout: options.timeout || 60000,
       cookies: this.userCookiesToInject.length > 0 ? this.userCookiesToInject : undefined,
+      disableMedia: options.disableMedia !== undefined ? options.disableMedia : true,
+      dataSaver: options.dataSaver !== undefined ? options.dataSaver : true,
     };
 
     const res = await this._request('request.post', payload);

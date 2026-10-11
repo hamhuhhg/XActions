@@ -14,6 +14,12 @@ from .config import settings
 
 logger = logging.getLogger(__name__)
 
+try:
+    from zendriver import cdp
+    _HAS_CDP = True
+except ImportError:
+    _HAS_CDP = False
+
 
 @dataclass
 class SessionEntry:
@@ -63,6 +69,7 @@ class SessionManager:
         session_id: Optional[str] = None,
         proxy: Optional[str] = None,
         ttl_minutes: Optional[int] = None,
+        data_saver: bool = True,
     ) -> str:
         import os
         import re
@@ -80,7 +87,7 @@ class SessionManager:
                     self._sessions.pop(sid, None)
                     self.semaphore.release()
 
-        browser_args = _base_browser_args()
+        browser_args = _base_browser_args(data_saver=data_saver)
         if proxy:
             browser_args.append(f"--proxy-server={proxy}")
 
@@ -91,6 +98,7 @@ class SessionManager:
         )
         os.makedirs(profile_dir, exist_ok=True)
         prune_profile_bloat(profile_dir)
+        _apply_profile_preferences(profile_dir, data_saver=data_saver)
 
         acquired = False
         try:
@@ -115,11 +123,21 @@ class SessionManager:
             
             browser = await zd.start(config=config)
             
+            if data_saver or settings.DATA_SAVER:
+                tab = getattr(browser, "main_tab", None)
+                if not tab and hasattr(browser, "tabs") and browser.tabs:
+                    tab = browser.tabs[0]
+                if tab:
+                    try:
+                        await _apply_data_saver(tab)
+                    except Exception as e:
+                        logger.debug("Failed to apply data saver to initial tab in session %s: %s", sid, e)
+
             entry = SessionEntry(session_id=sid, browser=browser, ttl_minutes=ttl_minutes)
             async with self._lock:
                 self._sessions[sid] = entry
             stored = True
-            logger.info("Created session %s (profile: %s)", sid, profile_dir)
+            logger.info("Created session %s (profile: %s, data_saver: %s)", sid, profile_dir, data_saver)
             return sid
         finally:
             if not stored:
@@ -218,8 +236,127 @@ def prune_profile_bloat(profile_dir: str) -> None:
             pass
 
 
-def _base_browser_args() -> list:
-    return [
+def _apply_profile_preferences(profile_dir: str, data_saver: bool = True) -> None:
+    """
+    Configure Chrome profile Preferences file directly to disable images and autoplay.
+    """
+    try:
+        import json
+        default_dir = os.path.join(profile_dir, "Default")
+        os.makedirs(default_dir, exist_ok=True)
+        pref_file = os.path.join(default_dir, "Preferences")
+        prefs = {}
+        if os.path.isfile(pref_file):
+            try:
+                with open(pref_file, "r", encoding="utf-8") as f:
+                    prefs = json.load(f)
+            except Exception:
+                prefs = {}
+        if not isinstance(prefs, dict):
+            prefs = {}
+
+        profile = prefs.setdefault("profile", {})
+        content_settings = profile.setdefault("default_content_setting_values", {})
+        if data_saver:
+            content_settings["images"] = 2  # 2 = Block images
+            content_settings["autoplay"] = 2  # 2 = Block autoplay
+        else:
+            content_settings["images"] = 1
+            content_settings["autoplay"] = 1
+
+        with open(pref_file, "w", encoding="utf-8") as f:
+            json.dump(prefs, f)
+    except Exception as e:
+        logger.debug("Failed to set profile preferences: %s", e)
+
+
+async def _apply_data_saver(tab) -> None:
+    """
+    Blocks incoming image and streaming media downloads via CDP set_blocked_ur_ls,
+    and freezes video/audio playback and buffer preloading via injected script.
+    Note: Outgoing file uploads (POST/PUT requests to upload APIs) are completely preserved.
+    """
+    if not _HAS_CDP or not tab:
+        return
+
+    # Patterns for incoming media downloads
+    patterns = [
+        "*.jpg", "*.jpg?*", "*.jpeg", "*.jpeg?*", "*.png", "*.png?*",
+        "*.gif", "*.gif?*", "*.webp", "*.webp?*", "*.svg", "*.svg?*",
+        "*.mp4", "*.mp4?*", "*.m4s", "*.m4s?*", "*.m4v", "*.m4v?*",
+        "*.webm", "*.webm?*", "*.m3u8", "*.m3u8?*", "*.ts", "*.ts?*",
+        "*.mpd", "*.mpd?*", "*.mp3", "*.ogg",
+        "*.woff", "*.woff2", "*.ttf", "*.eot",
+    ]
+    try:
+        await tab.send(cdp.network.enable())
+        await tab.send(cdp.network.set_blocked_ur_ls(urls=patterns))
+    except Exception as e:
+        logger.debug("Failed to set blocked URLs via CDP: %s", e)
+
+    script = """
+    (() => {
+        try {
+            if (window.__dataSaverInjected) return;
+            window.__dataSaverInjected = true;
+
+            // Force preload = 'none' on HTMLMediaElement
+            try {
+                Object.defineProperty(HTMLMediaElement.prototype, 'preload', {
+                    get: function() { return 'none'; },
+                    set: function() {},
+                    configurable: true
+                });
+            } catch(e) {}
+
+            // Prevent automated video / audio play()
+            try {
+                HTMLMediaElement.prototype.play = function() {
+                    this.pause();
+                    return Promise.reject(new Error("Media playback disabled by Data Saver"));
+                };
+            } catch(e) {}
+
+            const stopMedia = (el) => {
+                try {
+                    el.pause();
+                    el.removeAttribute('autoplay');
+                    el.preload = 'none';
+                } catch(e) {}
+            };
+
+            if (document.body) {
+                document.querySelectorAll('video, audio').forEach(stopMedia);
+            } else {
+                document.addEventListener('DOMContentLoaded', () => {
+                    document.querySelectorAll('video, audio').forEach(stopMedia);
+                }, { once: true });
+            }
+
+            const obs = new MutationObserver((muts) => {
+                for (const m of muts) {
+                    for (const n of m.addedNodes) {
+                        if (n.nodeName === 'VIDEO' || n.nodeName === 'AUDIO') {
+                            stopMedia(n);
+                        } else if (n.querySelectorAll) {
+                            n.querySelectorAll('video, audio').forEach(stopMedia);
+                        }
+                    }
+                }
+            });
+            obs.observe(document.documentElement || document, { childList: true, subtree: true });
+        } catch(e) {}
+    })();
+    """
+    try:
+        await tab.send(cdp.page.enable())
+        await tab.send(cdp.page.add_script_to_evaluate_on_new_document(source=script))
+    except Exception as e:
+        logger.debug("Failed to inject data saver script via CDP: %s", e)
+
+
+def _base_browser_args(data_saver: bool = True) -> list:
+    args = [
         "--no-sandbox",
         "--disable-dev-shm-usage",
         "--disable-gpu",
@@ -242,6 +379,12 @@ def _base_browser_args() -> list:
         "--disable-gpu-shader-disk-cache",
         "--metrics-recording-only=false",
     ]
+    if data_saver or settings.DATA_SAVER:
+        args.extend([
+            "--blink-settings=imagesEnabled=false",
+            "--autoplay-policy=user-gesture-required",
+        ])
+    return args
 
 
 async def _stop_browser(browser: Browser) -> None:
