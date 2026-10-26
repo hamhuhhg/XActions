@@ -1616,7 +1616,10 @@ tailwind.config = {
 
     // Safe Browser Logic
     async function openSafeBrowser(accountId) {
-      const accIndex = xactionsAccounts.findIndex(a => a.id === accountId);
+      if (typeof window.openSafeBrowser === 'function' && window.openSafeBrowser !== openSafeBrowser) {
+        return window.openSafeBrowser(accountId);
+      }
+      const accIndex = xactionsAccounts.findIndex(a => String(a.id) === String(accountId));
       if (accIndex === -1) return;
 
       const acc = xactionsAccounts[accIndex];

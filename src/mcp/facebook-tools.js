@@ -44,17 +44,26 @@ export function resolveSessionId(accountId, cookie) {
 
 export async function getClient(sessionIdOrOptions = 'safe_browser_facebook_default') {
   let sid = 'safe_browser_facebook_default';
+  let requestedDataSaver = undefined;
   if (typeof sessionIdOrOptions === 'string') {
     sid = sessionIdOrOptions;
   } else if (sessionIdOrOptions && typeof sessionIdOrOptions === 'object') {
     sid = resolveSessionId(sessionIdOrOptions.accountId, sessionIdOrOptions.cookie);
+    if (sessionIdOrOptions.dataSaver !== undefined) {
+      requestedDataSaver = sessionIdOrOptions.dataSaver;
+    }
   }
 
   if (!activeClients.has(sid)) {
     console.log(`[FB Browser] Starting TurnstileClient session: ${sid}`);
     const c = new TurnstileClient(sid);
-    await c.createSession();
+    await c.createSession(null, 60, requestedDataSaver !== undefined ? requestedDataSaver : true);
     activeClients.set(sid, c);
+  } else if (requestedDataSaver !== undefined) {
+    const existing = activeClients.get(sid);
+    if (existing && existing.dataSaver !== requestedDataSaver) {
+      await existing.createSession(null, 60, requestedDataSaver);
+    }
   }
   return activeClients.get(sid);
 }

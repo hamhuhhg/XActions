@@ -104,6 +104,7 @@ export class TurnstileClient {
   constructor(userId = 'xactions_session') {
     this.userId = userId;
     this.sessionId = null;
+    this.dataSaver = true;
     this.currentUrl = 'about:blank';
     this.currentHtml = '';
     this.currentCookies = [];
@@ -157,6 +158,7 @@ export class TurnstileClient {
    * Create or attach to a persistent browser session
    */
   async createSession(proxy = null, ttlMinutes = 60, dataSaver = true) {
+    this.dataSaver = dataSaver;
     const res = await this._request('sessions.create', {
       session: this.userId,
       proxy,
@@ -245,16 +247,19 @@ export class TurnstileClient {
    * Navigate to URL using TurnstileSolver get/post
    */
   async goto(targetUrl, options = {}) {
+    const effectiveDataSaver = options.dataSaver !== undefined ? options.dataSaver : (this.dataSaver !== undefined ? this.dataSaver : true);
+    const effectiveDisableMedia = options.disableMedia !== undefined ? options.disableMedia : effectiveDataSaver;
+
     if (!this.sessionId) {
-      await this.createSession();
+      await this.createSession(null, 60, effectiveDataSaver);
     }
 
     const payload = {
       url: targetUrl,
       maxTimeout: options.timeout || 60000,
       cookies: this.userCookiesToInject.length > 0 ? this.userCookiesToInject : undefined,
-      disableMedia: options.disableMedia !== undefined ? options.disableMedia : true,
-      dataSaver: options.dataSaver !== undefined ? options.dataSaver : true,
+      disableMedia: effectiveDisableMedia,
+      dataSaver: effectiveDataSaver,
     };
 
     const res = await this._request('request.get', payload);
@@ -272,8 +277,11 @@ export class TurnstileClient {
    * Submit POST request using TurnstileSolver
    */
   async post(targetUrl, postData, options = {}) {
+    const effectiveDataSaver = options.dataSaver !== undefined ? options.dataSaver : (this.dataSaver !== undefined ? this.dataSaver : true);
+    const effectiveDisableMedia = options.disableMedia !== undefined ? options.disableMedia : effectiveDataSaver;
+
     if (!this.sessionId) {
-      await this.createSession();
+      await this.createSession(null, 60, effectiveDataSaver);
     }
 
     const payload = {
@@ -281,8 +289,8 @@ export class TurnstileClient {
       postData,
       maxTimeout: options.timeout || 60000,
       cookies: this.userCookiesToInject.length > 0 ? this.userCookiesToInject : undefined,
-      disableMedia: options.disableMedia !== undefined ? options.disableMedia : true,
-      dataSaver: options.dataSaver !== undefined ? options.dataSaver : true,
+      disableMedia: effectiveDisableMedia,
+      dataSaver: effectiveDataSaver,
     };
 
     const res = await this._request('request.post', payload);

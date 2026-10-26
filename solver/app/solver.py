@@ -69,6 +69,8 @@ async def solve_request(
                     await _set_cookies(tab, cookies)
                 if disable_media:
                     await _block_media(tab)
+                else:
+                    await _unblock_media(tab)
                 if method == "POST" and post_data:
                     await _submit_post(tab, url, post_data)
                 else:
@@ -95,7 +97,7 @@ async def solve_request(
             )
         else:
             is_ephemeral = True
-            async with _ephemeral_browser(proxy) as browser:
+            async with _ephemeral_browser(proxy, data_saver=disable_media) as browser:
                 remaining_s = max(deadline - time.monotonic(), 2.0)
                 tab = await _open_tab(
                     browser=browser,
@@ -127,7 +129,7 @@ async def solve_request(
 # ── Browser lifecycle ──────────────────────────────────────────────────────────
 
 @asynccontextmanager
-async def _ephemeral_browser(proxy: Optional[str]):
+async def _ephemeral_browser(proxy: Optional[str], data_saver: bool = True):
     acquired = False
     try:
         await session_manager.semaphore.acquire()
@@ -137,7 +139,7 @@ async def _ephemeral_browser(proxy: Optional[str]):
 
     browser = None
     try:
-        args = _base_browser_args()
+        args = _base_browser_args(data_saver=data_saver)
         if proxy:
             args.append(f"--proxy-server={proxy}")
             
@@ -182,6 +184,8 @@ async def _open_tab(
                 await _set_cookies(tab, cookies)
             if disable_media:
                 await _block_media(tab)
+            else:
+                await _unblock_media(tab)
             await _submit_post(tab, url, post_data)
         elif cookies:
             # Set cookies before navigating to target URL so that the initial HTTP request includes the Cookie headers
@@ -189,11 +193,15 @@ async def _open_tab(
             await _set_cookies(tab, cookies)
             if disable_media:
                 await _block_media(tab)
+            else:
+                await _unblock_media(tab)
             await tab.get(url)
         else:
             tab = await browser.get(url, new_tab=True)
             if disable_media:
                 await _block_media(tab)
+            else:
+                await _unblock_media(tab)
 
         await _wait_for_load(tab, timeout_s)
         return tab
@@ -246,6 +254,16 @@ async def _block_media(tab: Tab) -> None:
         await tab.send(cdp.network.set_blocked_ur_ls(urls=patterns))
     except Exception as e:
         logger.warning("Failed to block media via CDP: %s", e)
+
+
+async def _unblock_media(tab: Tab) -> None:
+    if not _HAS_CDP or not tab:
+        return
+    try:
+        await tab.send(cdp.network.enable())
+        await tab.send(cdp.network.set_blocked_ur_ls(urls=[]))
+    except Exception as e:
+        logger.debug("Failed to unblock media via CDP: %s", e)
 
     script = """
     (() => {

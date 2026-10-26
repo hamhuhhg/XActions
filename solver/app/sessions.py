@@ -28,6 +28,7 @@ class SessionEntry:
     created_at: float = field(default_factory=time.monotonic)
     last_used_at: float = field(default_factory=time.monotonic)
     ttl_minutes: Optional[int] = None
+    data_saver: bool = True
 
     @property
     def is_expired(self) -> bool:
@@ -69,25 +70,37 @@ class SessionManager:
         session_id: Optional[str] = None,
         proxy: Optional[str] = None,
         ttl_minutes: Optional[int] = None,
-        data_saver: bool = True,
+        data_saver: Optional[bool] = None,
     ) -> str:
         import os
         import re
 
         sid = session_id or str(uuid.uuid4())
+        effective_data_saver = settings.DATA_SAVER if data_saver is None else bool(data_saver)
 
         async with self._lock:
             if sid in self._sessions:
                 existing = self._sessions[sid]
                 if not _browser_stopped(existing.browser):
-                    logger.info("Reusing existing session %s", sid)
-                    return sid
+                    if existing.data_saver != effective_data_saver:
+                        logger.info(
+                            "Session %s data_saver mode changed (%s -> %s), restarting browser to apply new media settings.",
+                            sid,
+                            existing.data_saver,
+                            effective_data_saver,
+                        )
+                        await _stop_browser(existing.browser)
+                        self._sessions.pop(sid, None)
+                        self.semaphore.release()
+                    else:
+                        logger.info("Reusing existing session %s", sid)
+                        return sid
                 else:
                     logger.info("Session %s browser was closed, releasing stale session.", sid)
                     self._sessions.pop(sid, None)
                     self.semaphore.release()
 
-        browser_args = _base_browser_args(data_saver=data_saver)
+        browser_args = _base_browser_args(data_saver=effective_data_saver)
         if proxy:
             browser_args.append(f"--proxy-server={proxy}")
 
@@ -98,7 +111,7 @@ class SessionManager:
         )
         os.makedirs(profile_dir, exist_ok=True)
         prune_profile_bloat(profile_dir)
-        _apply_profile_preferences(profile_dir, data_saver=data_saver)
+        _apply_profile_preferences(profile_dir, data_saver=effective_data_saver)
 
         acquired = False
         try:
@@ -123,21 +136,23 @@ class SessionManager:
             
             browser = await zd.start(config=config)
             
-            if data_saver or settings.DATA_SAVER:
-                tab = getattr(browser, "main_tab", None)
-                if not tab and hasattr(browser, "tabs") and browser.tabs:
-                    tab = browser.tabs[0]
-                if tab:
-                    try:
+            tab = getattr(browser, "main_tab", None)
+            if not tab and hasattr(browser, "tabs") and browser.tabs:
+                tab = browser.tabs[0]
+            if tab:
+                try:
+                    if effective_data_saver:
                         await _apply_data_saver(tab)
-                    except Exception as e:
-                        logger.debug("Failed to apply data saver to initial tab in session %s: %s", sid, e)
+                    else:
+                        await _unapply_data_saver(tab)
+                except Exception as e:
+                    logger.debug("Failed to set data saver state on initial tab in session %s: %s", sid, e)
 
-            entry = SessionEntry(session_id=sid, browser=browser, ttl_minutes=ttl_minutes)
+            entry = SessionEntry(session_id=sid, browser=browser, ttl_minutes=ttl_minutes, data_saver=effective_data_saver)
             async with self._lock:
                 self._sessions[sid] = entry
             stored = True
-            logger.info("Created session %s (profile: %s, data_saver: %s)", sid, profile_dir, data_saver)
+            logger.info("Created session %s (profile: %s, data_saver: %s)", sid, profile_dir, effective_data_saver)
             return sid
         finally:
             if not stored:
@@ -238,7 +253,7 @@ def prune_profile_bloat(profile_dir: str) -> None:
 
 def _apply_profile_preferences(profile_dir: str, data_saver: bool = True) -> None:
     """
-    Configure Chrome profile Preferences file directly to disable images and autoplay.
+    Configure Chrome profile Preferences file directly to disable or enable images and autoplay.
     """
     try:
         import json
@@ -261,8 +276,13 @@ def _apply_profile_preferences(profile_dir: str, data_saver: bool = True) -> Non
             content_settings["images"] = 2  # 2 = Block images
             content_settings["autoplay"] = 2  # 2 = Block autoplay
         else:
-            content_settings["images"] = 1
-            content_settings["autoplay"] = 1
+            content_settings["images"] = 1  # 1 = Allow images
+            content_settings["autoplay"] = 1  # 1 = Allow autoplay
+
+        # Also clear any exception overrides that might block images
+        exceptions = profile.setdefault("content_settings", {}).setdefault("exceptions", {})
+        if not data_saver and "images" in exceptions:
+            exceptions["images"] = {}
 
         with open(pref_file, "w", encoding="utf-8") as f:
             json.dump(prefs, f)
@@ -355,7 +375,21 @@ async def _apply_data_saver(tab) -> None:
         logger.debug("Failed to inject data saver script via CDP: %s", e)
 
 
-def _base_browser_args(data_saver: bool = True) -> list:
+async def _unapply_data_saver(tab) -> None:
+    """
+    Clears CDP URL blocking and unblocks media loading.
+    """
+    if not _HAS_CDP or not tab:
+        return
+    try:
+        await tab.send(cdp.network.enable())
+        await tab.send(cdp.network.set_blocked_ur_ls(urls=[]))
+    except Exception as e:
+        logger.debug("Failed to unapply data saver via CDP: %s", e)
+
+
+def _base_browser_args(data_saver: Optional[bool] = None) -> list:
+    use_data_saver = settings.DATA_SAVER if data_saver is None else bool(data_saver)
     args = [
         "--no-sandbox",
         "--disable-dev-shm-usage",
@@ -379,10 +413,14 @@ def _base_browser_args(data_saver: bool = True) -> list:
         "--disable-gpu-shader-disk-cache",
         "--metrics-recording-only=false",
     ]
-    if data_saver or settings.DATA_SAVER:
+    if use_data_saver:
         args.extend([
             "--blink-settings=imagesEnabled=false",
             "--autoplay-policy=user-gesture-required",
+        ])
+    else:
+        args.extend([
+            "--blink-settings=imagesEnabled=true",
         ])
     return args
 

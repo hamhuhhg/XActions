@@ -1024,6 +1024,12 @@
       });
     }
 
+    // Expose helpers globally
+    window.isDataSaverEnabled = isDataSaverEnabled;
+    window.setDataSaverEnabled = setDataSaverEnabled;
+    window.toggleDataSaverMode = toggleDataSaverMode;
+    window.updateDataSaverUI = updateDataSaverUI;
+
     // Safe Browser Logic
     async function openSafeBrowser(accountId, forceDataSaver = null) {
       const accIndex = xactionsAccounts.findIndex(a => String(a.id) === String(accountId));
@@ -1067,6 +1073,7 @@
         }
       }
     }
+    window.openSafeBrowser = openSafeBrowser;
 
     // Suspension Checker Logic
     async function checkSingleAccount(accountId) {

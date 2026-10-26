@@ -32,8 +32,8 @@ class V1Request(BaseModel):
     proxy: Optional[ProxyConfig] = None
     returnOnlyCookies: bool = False
     returnScreenshot: bool = False
-    disableMedia: bool = True
-    dataSaver: bool = True
+    disableMedia: Optional[bool] = None
+    dataSaver: Optional[bool] = None
     turnstile_input_name: str = "cf-turnstile-response"
 
 

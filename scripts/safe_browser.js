@@ -57,7 +57,7 @@ async function main() {
             console.log(`[SafeBrowser] 🍪 Setting ${parsedCookies.length} Facebook session cookies...`);
             await client.setCookie(...parsedCookies);
         }
-        await client.goto('https://www.facebook.com/');
+        await client.goto('https://www.facebook.com/', { dataSaver, disableMedia: dataSaver });
     } else {
         if (!hasExistingTwitter && auth_token) {
             await client.setCookie({
@@ -79,7 +79,7 @@ async function main() {
                 sameSite: 'None'
             });
         }
-        await client.goto('https://x.com/home');
+        await client.goto('https://x.com/home', { dataSaver, disableMedia: dataSaver });
     }
     
     console.log("TurnstileSolver session launched successfully. Active URL:", client.url());

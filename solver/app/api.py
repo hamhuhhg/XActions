@@ -381,6 +381,19 @@ async def _dispatch(req: V1Request, start_ts: int) -> Dict[str, Any]:
         if req.cmd == "request.post" and not req.postData:
             raise ValueError("postData field is required for request.post")
 
+        session_data_saver = None
+        if req.session and req.session in session_manager._sessions:
+            session_data_saver = session_manager._sessions[req.session].data_saver
+
+        if req.dataSaver is not None:
+            effective_data_saver = req.dataSaver
+        elif session_data_saver is not None:
+            effective_data_saver = session_data_saver
+        else:
+            effective_data_saver = settings.DATA_SAVER
+
+        effective_disable_media = req.disableMedia if req.disableMedia is not None else effective_data_saver
+
         timeout_ms = min(req.maxTimeout, settings.MAX_TIMEOUT)
         solution = await solve_request(
             url=req.url,
@@ -391,7 +404,7 @@ async def _dispatch(req: V1Request, start_ts: int) -> Dict[str, Any]:
             timeout_ms=timeout_ms,
             return_only_cookies=req.returnOnlyCookies,
             return_screenshot=req.returnScreenshot,
-            disable_media=req.disableMedia or req.dataSaver,
+            disable_media=effective_disable_media,
             session_id=req.session,
             turnstile_input_name=req.turnstile_input_name,
         )
