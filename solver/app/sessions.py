@@ -134,6 +134,36 @@ class SessionManager:
             config.browser_connection_timeout = 10  # 10s timeout per connect attempt
             config.browser_connection_max_tries = 12  # Try 12 times (total 120s)
             
+            # Allow installing and updating extensions from Chrome Web Store
+            config._default_browser_args = [
+                arg for arg in config._default_browser_args
+                if arg not in ("--disable-component-update", "--disable-background-networking")
+            ]
+
+            # Auto-load custom extensions if present in workspace or profile extensions directory
+            shared_ext_dir = os.path.abspath(
+                os.path.join(os.path.dirname(__file__), "..", "..", "extensions")
+            )
+            for search_dir in [shared_ext_dir, os.path.join(profile_dir, "extensions")]:
+                if os.path.isdir(search_dir):
+                    for item in sorted(os.listdir(search_dir)):
+                        item_path = os.path.join(search_dir, item)
+                        if os.path.isdir(item_path) and (
+                            os.path.isfile(os.path.join(item_path, "manifest.json"))
+                            or os.path.isfile(os.path.join(item_path, "manifest.json5"))
+                        ):
+                            try:
+                                config.add_extension(item_path)
+                                logger.info("Auto-loaded extension folder: %s", item_path)
+                            except Exception as e:
+                                logger.warning("Could not auto-load extension from %s: %s", item_path, e)
+                        elif os.path.isfile(item_path) and item.lower().endswith(".crx"):
+                            try:
+                                config.add_extension(item_path)
+                                logger.info("Auto-loaded CRX extension: %s", item_path)
+                            except Exception as e:
+                                logger.warning("Could not auto-load CRX %s: %s", item_path, e)
+
             browser = await zd.start(config=config)
             
             tab = getattr(browser, "main_tab", None)
@@ -395,7 +425,6 @@ def _base_browser_args(data_saver: Optional[bool] = None) -> list:
         "--disable-dev-shm-usage",
         "--disable-gpu",
         "--window-size=1920,1080",
-        "--disable-extensions",
         "--no-zygote",
         "--disable-software-rasterizer",
         "--disable-setuid-sandbox",
@@ -406,8 +435,6 @@ def _base_browser_args(data_saver: Optional[bool] = None) -> list:
         # Disable heavy ML model downloads and hint stores in Chromium
         "--disable-features=OptimizationGuideModelDownloading,OptimizationHints,OptimizationTargetPrediction,InterestFeedContentSuggestions,Translate",
         # Disable background bloat and telemetry
-        "--disable-component-update",
-        "--disable-background-networking",
         "--disable-sync",
         "--disable-breakpad",
         "--disable-gpu-shader-disk-cache",
