@@ -145,5 +145,7 @@ fb_login_*.png
 *.backup
 *.bak
 scratch/
+.solver_port
+solver/.solver_port
 
 /solver/browser_profiles

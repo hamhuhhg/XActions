@@ -1,3 +1,4 @@
+import fs from 'fs';
 import TurnstileClient from '../src/solver/turnstile-client.js';
 import { PrismaClient } from '@prisma/client';
 import { normalizeFacebookCookies } from '../src/core/cookies.js';
@@ -23,6 +24,7 @@ async function main() {
     
     // Parse arguments
     let b64Token = '';
+    let tokenFile = '';
     let platform = 'twitter';
     let accountId = 'default';
     let dataSaver = true;
@@ -30,6 +32,8 @@ async function main() {
     for (let i = 0; i < args.length; i++) {
         if (args[i] === '--token_b64' && args[i+1]) {
             b64Token = args[i+1];
+        } else if (args[i] === '--token_file' && args[i+1]) {
+            tokenFile = args[i+1];
         } else if (args[i] === '--platform' && args[i+1]) {
             platform = args[i+1];
         } else if (args[i] === '--accountId' && args[i+1]) {
@@ -39,17 +43,41 @@ async function main() {
         }
     }
 
-    if (!b64Token) {
+    let auth_token = '';
+    if (tokenFile) {
+        try {
+            auth_token = fs.readFileSync(tokenFile, 'utf8');
+            fs.unlinkSync(tokenFile);
+        } catch (e) {
+            console.error(`[SafeBrowser] Failed to read token file ${tokenFile}:`, e.message);
+        }
+    } else if (b64Token) {
+        auth_token = Buffer.from(b64Token, 'base64').toString('utf8');
+    }
+
+    // Fallback to DB lookup if token was not obtained from file/args
+    if (!auth_token && accountId && accountId !== 'default') {
+        try {
+            const dbAcc = await prisma.socialAccount.findUnique({ where: { id: accountId.toString() } });
+            if (dbAcc?.token) {
+                auth_token = dbAcc.token;
+            }
+        } catch (e) {
+            console.error(`[SafeBrowser] Failed to fetch account token from DB:`, e.message);
+        }
+    }
+
+    if (!auth_token) {
         console.error("No token provided");
         process.exit(1);
     }
-
-    const auth_token = Buffer.from(b64Token, 'base64').toString('utf8');
 
     const sessionId = `safe_browser_${platform}_${accountId}`;
     const client = new TurnstileClient(sessionId);
     console.log(`[SafeBrowser] 🌐 Launching session ${sessionId} (Data Saver: ${dataSaver ? 'ON - Videos/Images blocked' : 'OFF'})...`);
     await client.createSession(null, 60, dataSaver);
+
+    const existingCookies = (await client.getCookies()) || [];
 
     if (platform === 'facebook') {
         const parsedCookies = normalizeFacebookCookies(auth_token);
@@ -59,10 +87,13 @@ async function main() {
         }
         await client.goto('https://www.facebook.com/', { dataSaver, disableMedia: dataSaver });
     } else {
+        const hasExistingTwitter = Array.isArray(existingCookies) && existingCookies.some(
+            c => c.name === 'auth_token' && c.value && c.value === String(auth_token).trim()
+        );
         if (!hasExistingTwitter && auth_token) {
             await client.setCookie({
                 name: 'auth_token',
-                value: String(auth_token),
+                value: String(auth_token).trim(),
                 domain: '.twitter.com',
                 path: '/',
                 secure: true,
@@ -71,7 +102,7 @@ async function main() {
             });
             await client.setCookie({
                 name: 'auth_token',
-                value: String(auth_token),
+                value: String(auth_token).trim(),
                 domain: '.x.com',
                 path: '/',
                 secure: true,
@@ -109,11 +140,17 @@ async function main() {
             }
 
             if (platform === 'facebook') {
-                const cUser = currentCookies.find(c => c.name === 'c_user')?.value;
-                const xs = currentCookies.find(c => c.name === 'xs')?.value;
+                const fbCookies = currentCookies.filter(c =>
+                    !c.domain ||
+                    c.domain.includes('facebook.com') ||
+                    c.domain.includes('fb.com') ||
+                    c.domain.includes('messenger.com')
+                );
+                const cUser = fbCookies.find(c => c.name === 'c_user')?.value;
+                const xs = fbCookies.find(c => c.name === 'xs')?.value;
 
                 if (cUser && xs) {
-                    const jsonString = JSON.stringify(currentCookies);
+                    const jsonString = JSON.stringify(fbCookies);
                     if (jsonString !== lastSavedToken) {
                         console.log(`[SafeBrowser] 🍪 Detected and saved updated Facebook session cookies for c_user=${cUser}`);
                         lastSavedToken = jsonString;

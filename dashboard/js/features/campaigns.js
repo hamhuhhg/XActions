@@ -3,6 +3,38 @@
 
 let currentCampaignPlatform = 'twitter';
 
+// Global helpers for Facebook campaign modes
+function toggleFbExecutionMode(mode) {
+  const cardSmart = document.getElementById('mode-card-smart_direct');
+  const cardAi = document.getElementById('mode-card-ai_agent');
+  const aiSettings = document.getElementById('fb-ai-agent-settings');
+
+  if (mode === 'ai_agent') {
+    if (cardSmart) cardSmart.className = 'cursor-pointer border-2 border-darkborder bg-slate-900/40 rounded-xl p-3 flex items-start gap-3 transition-all hover:border-blue-400';
+    if (cardAi) cardAi.className = 'cursor-pointer border-2 border-purple-500/60 bg-purple-500/10 rounded-xl p-3 flex items-start gap-3 transition-all hover:border-purple-400';
+    if (aiSettings) aiSettings.classList.remove('hidden');
+  } else {
+    if (cardSmart) cardSmart.className = 'cursor-pointer border-2 border-blue-500/60 bg-blue-500/10 rounded-xl p-3 flex items-start gap-3 transition-all hover:border-blue-400';
+    if (cardAi) cardAi.className = 'cursor-pointer border-2 border-darkborder bg-slate-900/40 rounded-xl p-3 flex items-start gap-3 transition-all hover:border-purple-400';
+    if (aiSettings) aiSettings.classList.add('hidden');
+  }
+}
+
+function togglePostDestination(selectEl) {
+  const container = selectEl.closest('.fb-post-config-box')?.querySelector('.camp-target-url-container');
+  if (container) {
+    if (selectEl.value === 'group' || selectEl.value === 'page') {
+      container.classList.remove('hidden');
+      const input = container.querySelector('.camp-target-url');
+      if (input && !input.value) {
+        input.placeholder = selectEl.value === 'group' ? 'https://www.facebook.com/groups/...' : 'https://www.facebook.com/...';
+      }
+    } else {
+      container.classList.add('hidden');
+    }
+  }
+}
+
 function renderCampaignBuilder(container, platform = 'twitter') {
   currentCampaignPlatform = platform || (typeof currentMainPlatform !== 'undefined' ? currentMainPlatform : 'twitter');
   const isFb = currentCampaignPlatform === 'facebook';
@@ -83,7 +115,82 @@ function renderCampaignBuilder(container, platform = 'twitter') {
     `;
   }
 
-  container.innerHTML = `
+    let fbExecutionModeHtml = '';
+    if (isFb) {
+      const savedAi = (() => {
+        try { return JSON.parse(localStorage.getItem('xactions_fb_ai_config') || '{}'); } catch(e) { return {}; }
+      })();
+      const defaultBaseUrl = savedAi.baseUrl || savedAi.ai_base_url || 'https://api.openai.com/v1';
+      const defaultApiKey = savedAi.apiKey || savedAi.ai_api_key || '';
+      const defaultModel = savedAi.model || savedAi.ai_model || 'gpt-4o-mini';
+
+      fbExecutionModeHtml = `
+        <div class="p-4 bg-slate-900/60 border border-darkborder rounded-2xl space-y-3">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold text-white flex items-center gap-2">
+              <i class="fa-solid fa-sliders text-blue-400"></i> وضع وآلية النشر لحسابات فيسبوك
+            </span>
+            <span class="text-[10px] text-slate-400">اختر الآلية المناسبة لحملتك</span>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <!-- Mode B: Smart Direct -->
+            <label class="cursor-pointer border-2 border-blue-500/60 bg-blue-500/10 rounded-xl p-3 flex items-start gap-3 transition-all hover:border-blue-400" id="mode-card-smart_direct">
+              <input type="radio" name="fb_execution_mode" value="smart_direct" checked onchange="toggleFbExecutionMode('smart_direct')" class="mt-1 text-blue-500 bg-slate-900 border-darkborder">
+              <div>
+                <div class="text-xs font-bold text-white flex items-center gap-1.5">
+                  <span>⚡ النشر المباشر السريع والذكي</span>
+                  <span class="text-[9px] px-1.5 py-0.5 rounded bg-blue-500/30 text-blue-300 font-normal">تلقائي فوري</span>
+                </div>
+                <p class="text-[11px] text-slate-400 mt-1 leading-relaxed">
+                  نشر فوري عبر محرك المتصفح الآمن بدون الحاجة لمفتاح ذكاء اصطناعي. يتضمن محاكاة بشرية ذكية ودعم المجموعات والصفحات والتعليق الأول.
+                </p>
+              </div>
+            </label>
+
+            <!-- Mode A: AI Browser Agent -->
+            <label class="cursor-pointer border-2 border-darkborder bg-slate-900/40 rounded-xl p-3 flex items-start gap-3 transition-all hover:border-purple-400" id="mode-card-ai_agent">
+              <input type="radio" name="fb_execution_mode" value="ai_agent" onchange="toggleFbExecutionMode('ai_agent')" class="mt-1 text-purple-500 bg-slate-900 border-darkborder">
+              <div>
+                <div class="text-xs font-bold text-white flex items-center gap-1.5">
+                  <span>🤖 وكيل الذكاء الاصطناعي (نقرة بنقرة)</span>
+                  <span class="text-[9px] px-1.5 py-0.5 rounded bg-purple-500/30 text-purple-300 font-normal">Autonomous Agent</span>
+                </div>
+                <p class="text-[11px] text-slate-400 mt-1 leading-relaxed">
+                  يتولى الذكاء الاصطناعي قيادة المتصفح خطوة بخطوة: فحص الصفحة، الإجابة على أسئلة المجموعات، النقر، وإدراج المحتوى والتحقق من النشر.
+                </p>
+              </div>
+            </label>
+          </div>
+
+          <!-- Collapsible AI Agent Settings -->
+          <div id="fb-ai-agent-settings" class="hidden p-3 bg-slate-950/70 border border-purple-500/30 rounded-xl space-y-3 mt-2 text-right" dir="rtl">
+            <div class="flex items-center justify-between">
+              <span class="text-[11px] font-bold text-purple-300 flex items-center gap-1.5">
+                <i class="fa-solid fa-robot"></i> إعدادات وكيل الذكاء الاصطناعي (OpenAI / Ollama / Groq / DeepSeek / NVIDIA / Gemini)
+              </span>
+              <span class="text-[10px] text-slate-500">ملاحظة: المحتوى تكتبه أنت، الذكاء الاصطناعي يتولى خطوات النشر والتصفح فقط</span>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div>
+                <label class="block text-[10px] text-slate-400 mb-1">المزود أو العنوان (Base URL)</label>
+                <input type="text" id="fb-ai-base-url" class="w-full bg-slate-900 border border-darkborder rounded-lg px-2.5 py-1.5 text-xs text-white" placeholder="https://api.openai.com/v1" dir="ltr" value="${defaultBaseUrl}">
+              </div>
+              <div>
+                <label class="block text-[10px] text-slate-400 mb-1">مفتاح API Key (أو محلي)</label>
+                <input type="password" id="fb-ai-api-key" class="w-full bg-slate-900 border border-darkborder rounded-lg px-2.5 py-1.5 text-xs text-white" placeholder="sk-..." dir="ltr" value="${defaultApiKey}">
+              </div>
+              <div>
+                <label class="block text-[10px] text-slate-400 mb-1">اسم النموذج (Model)</label>
+                <input type="text" id="fb-ai-model" class="w-full bg-slate-900 border border-darkborder rounded-lg px-2.5 py-1.5 text-xs text-white" placeholder="gpt-4o-mini" dir="ltr" value="${defaultModel}">
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    container.innerHTML = `
     <div class="flex items-center justify-between">
       <h3 class="text-sm font-bold text-white flex items-center gap-2">
         ${titleHtml}
@@ -102,6 +209,7 @@ function renderCampaignBuilder(container, platform = 'twitter') {
         <input type="datetime-local" id="campaign-schedule" class="w-full bg-slate-900/50 border border-darkborder rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-${brandColor}-500">
       </div>
     </div>
+    ${fbExecutionModeHtml}
     <div id="campaign-account-selector"></div>
     <div class="bg-darkcard border border-darkborder rounded-2xl overflow-hidden shadow-xl">
       <div class="flex border-b border-darkborder bg-slate-900/80 p-1">
@@ -230,12 +338,56 @@ function addCampaignRow(type, initialData = null) {
       <textarea class="w-full bg-transparent border-none text-sm text-white focus:ring-0 p-0 resize-none camp-text" placeholder="ماذا تريد أن تغرد؟" rows="2" oninput="updateCampaignTargetOptions()">${textVal}</textarea>
     `;
   } else if (type === 'posts') {
+    const destType = initialData?.destinationType || (initialData?.targetUrl?.includes('/groups/') ? 'group' : 'profile');
+    const targetUrl = initialData?.targetUrl || '';
+    const firstComment = initialData?.firstComment || '';
+    const hasFirstComment = !!firstComment;
+
     inputHtml = `
-      <div class="flex justify-between items-center mb-2">
-        <span class="text-[10px] text-blue-400 font-bold uppercase tracking-wider"><i class="fa-solid fa-newspaper mr-1"></i> منشور فيسبوك جديد</span>
-        ${idField}
+      <div class="fb-post-config-box space-y-3">
+        <div class="flex justify-between items-center mb-1">
+          <span class="text-[10px] text-blue-400 font-bold uppercase tracking-wider flex items-center gap-1.5">
+            <i class="fa-solid fa-newspaper"></i> منشور فيسبوك جديد
+          </span>
+          ${idField}
+        </div>
+
+        <!-- Destination Selector -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
+          <div>
+            <label class="block text-[10px] text-slate-400 mb-1">وجهة النشر</label>
+            <select class="w-full bg-slate-800/80 border border-darkborder rounded-lg px-2 py-1.5 text-xs text-slate-200 camp-destination-type" onchange="togglePostDestination(this)">
+              <option value="profile" ${destType === 'profile' ? 'selected' : ''}>👤 اليوميات / الحساب الشخصي</option>
+              <option value="group" ${destType === 'group' ? 'selected' : ''}>👥 مجموعة فيسبوك (Group)</option>
+              <option value="page" ${destType === 'page' ? 'selected' : ''}>📄 صفحة فيسبوك (Page)</option>
+            </select>
+          </div>
+          <div class="md:col-span-2 camp-target-url-container ${destType === 'group' || destType === 'page' ? '' : 'hidden'}">
+            <label class="block text-[10px] text-slate-400 mb-1">رابط المجموعة أو الصفحة (URL)</label>
+            <input type="text" class="w-full bg-slate-800/80 border border-darkborder rounded-lg px-2.5 py-1.5 text-xs text-blue-300 camp-target-url" placeholder="https://www.facebook.com/groups/..." dir="ltr" value="${targetUrl}">
+          </div>
+        </div>
+
+        <!-- Post Content (User's text) -->
+        <div>
+          <label class="block text-[10px] text-slate-400 mb-1">محتوى المنشور (اكتبه بنفسك)</label>
+          <textarea class="w-full bg-slate-800/40 border border-darkborder rounded-lg p-2.5 text-sm text-white focus:ring-1 focus:ring-blue-500 resize-none camp-text" placeholder="ماذا يخطر في بالك؟ اكتب نص المنشور هنا..." rows="3" oninput="updateCampaignTargetOptions()">${textVal}</textarea>
+        </div>
+
+        <!-- First Comment Section -->
+        <div class="pt-2 border-t border-darkborder/30">
+          <div class="flex items-center justify-between mb-1.5">
+            <label class="text-[11px] text-slate-300 font-semibold flex items-center gap-1.5 cursor-pointer">
+              <input type="checkbox" class="camp-first-comment-enabled text-blue-500 bg-slate-900 border-darkborder rounded" onchange="this.parentElement.parentElement.nextElementSibling.classList.toggle('hidden', !this.checked)" ${hasFirstComment ? 'checked' : ''}>
+              <span>إضافة تعليق أول تلقائياً بعد النشر (First Comment)</span>
+            </label>
+            <span class="text-[9px] text-slate-500">مفيد لوضع روابط أو معلومات تواصل لتفادي تقليل الوصول</span>
+          </div>
+          <div class="${hasFirstComment ? '' : 'hidden'} mt-1.5">
+            <textarea class="w-full bg-slate-800/30 border border-darkborder rounded-lg p-2 text-xs text-slate-200 focus:ring-1 focus:ring-blue-500 resize-none camp-first-comment" placeholder="اكتب نص التعليق الأول هنا (مثال: رابط المقال أو الكود أو التواصل)..." rows="2">${firstComment}</textarea>
+          </div>
+        </div>
       </div>
-      <textarea class="w-full bg-transparent border-none text-sm text-white focus:ring-0 p-0 resize-none camp-text" placeholder="ماذا يخطر في بالك؟ اكتب نص المنشور هنا..." rows="2" oninput="updateCampaignTargetOptions()">${textVal}</textarea>
     `;
   } else if (type === 'messages') {
     const targetVal = initialData?.target || '';
@@ -386,6 +538,11 @@ async function saveCampaignToDb() {
       target = `{{${select.value}}}`;
     }
 
+    const destinationType = row.querySelector('.camp-destination-type')?.value || 'profile';
+    const targetUrl = (row.querySelector('.camp-target-url')?.value || '').trim() || null;
+    const firstCommentEnabled = row.querySelector('.camp-first-comment-enabled')?.checked;
+    const firstComment = firstCommentEnabled ? (row.querySelector('.camp-first-comment')?.value || '').trim() : null;
+
     let trendConfig = null;
     if (typeId !== 'messages') {
       const trendCheckbox = row.querySelector('.camp-trend-enabled');
@@ -402,6 +559,9 @@ async function saveCampaignToDb() {
       refId: row.querySelector('.camp-ref-id')?.value?.trim(),
       text: row.querySelector('.camp-text')?.value,
       target: target,
+      targetUrl: targetUrl,
+      destinationType: destinationType,
+      firstComment: firstComment,
       media: row.querySelector('.camp-media-path')?.value || null,
       trendConfig: trendConfig
     };
@@ -424,12 +584,44 @@ async function saveCampaignToDb() {
     messages: extract('messages')
   };
 
+  const fbExecutionMode = isFb ? (document.querySelector('input[name="fb_execution_mode"]:checked')?.value || 'smart_direct') : undefined;
+  const baseUrlVal = document.getElementById('fb-ai-base-url')?.value?.trim() || 'https://api.openai.com/v1';
+  const apiKeyVal = document.getElementById('fb-ai-api-key')?.value?.trim() || '';
+  const modelVal = document.getElementById('fb-ai-model')?.value?.trim() || 'gpt-4o-mini';
+
+  const aiConfig = isFb ? {
+    baseUrl: baseUrlVal,
+    ai_base_url: baseUrlVal,
+    apiKey: apiKeyVal,
+    ai_api_key: apiKeyVal,
+    model: modelVal,
+    ai_model: modelVal,
+  } : undefined;
+
+  if (aiConfig) {
+    try {
+      localStorage.setItem('xactions_fb_ai_config', JSON.stringify({
+        baseUrl: baseUrlVal,
+        apiKey: apiKeyVal,
+        model: modelVal,
+      }));
+    } catch (e) {}
+  }
+
+  const campaignConfig = {
+    target_accounts: accounts,
+    ...(isFb ? {
+      execution_mode: fbExecutionMode,
+      ai_config: aiConfig,
+    } : {}),
+  };
+
   const campaignData = {
     id: editingCampaignId,
     name,
     platform: currentCampaignPlatform,
     schedule: document.getElementById('campaign-schedule').value || null,
-    config: { target_accounts: accounts },
+    config: campaignConfig,
     content: content
   };
 
@@ -537,6 +729,21 @@ async function editCampaign(id) {
     const content = JSON.parse(camp.content || '{}');
 
     if (campPlatform === 'facebook') {
+      const fbMode = config.execution_mode || 'smart_direct';
+      const modeRadio = document.querySelector(`input[name="fb_execution_mode"][value="${fbMode}"]`);
+      if (modeRadio) {
+        modeRadio.checked = true;
+        toggleFbExecutionMode(fbMode);
+      }
+      if (config.ai_config) {
+        const b = config.ai_config.baseUrl || config.ai_config.ai_base_url || config.ai_config.base_url;
+        const k = config.ai_config.apiKey || config.ai_config.ai_api_key || config.ai_config.api_key;
+        const m = config.ai_config.model || config.ai_config.ai_model || config.ai_config.model_name;
+        if (document.getElementById('fb-ai-base-url') && b) document.getElementById('fb-ai-base-url').value = b;
+        if (document.getElementById('fb-ai-api-key') && k) document.getElementById('fb-ai-api-key').value = k;
+        if (document.getElementById('fb-ai-model') && m) document.getElementById('fb-ai-model').value = m;
+      }
+
       ['posts', 'comments'].forEach(type => {
         const list = document.getElementById(`${type}-list`);
         if (list) list.innerHTML = '';

@@ -7,7 +7,7 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    HOST: str = "0.0.0.0"
+    HOST: str = Field(default="127.0.0.1", validation_alias=AliasChoices("SOLVER_HOST", "HOST"))
     PORT: int = Field(default=8191, validation_alias=AliasChoices("SOLVER_PORT", "TURNSTILE_PORT"))
     LOG_LEVEL: str = "info"
     MAX_TIMEOUT: int = 60000

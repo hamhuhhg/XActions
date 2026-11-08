@@ -1,76 +1,180 @@
 /**
  * TurnstileSolver Node.js Client & Process Supervisor
- * Communicates with embedded TurnstileSolver Python engine (http://localhost:8191/v1)
+ * Communicates with embedded TurnstileSolver Python engine (http://127.0.0.1:8191/v1)
  * Replaces Puppeteer and Camofox across XActions.
  */
 
-import { spawn } from 'child_process';
+import { spawn, execSync } from 'child_process';
 import path from 'path';
+import net from 'net';
+import fs from 'fs';
 
-const API_BASE =
-  process.env.TURNSTILE_SOLVER_URL || process.env.SOLVER_API_URL || 'http://localhost:8191';
-
+let activeSolverUrl = process.env.TURNSTILE_SOLVER_URL || process.env.SOLVER_API_URL || null;
 let solverProcess = null;
 let isStartingServer = false;
 let isSolverConfirmedRunning = false;
 
+export function getApiBase() {
+  if (activeSolverUrl) return activeSolverUrl;
+  const portFile = path.resolve('solver/.solver_port');
+  if (fs.existsSync(portFile)) {
+    try {
+      const filePort = parseInt(fs.readFileSync(portFile, 'utf8').trim(), 10);
+      if (filePort) return `http://127.0.0.1:${filePort}`;
+    } catch (e) {}
+  }
+  return 'http://127.0.0.1:8191';
+}
+
+function detectPythonCommand() {
+  if (process.env.PYTHON_PATH) return process.env.PYTHON_PATH;
+  const candidates = process.platform === 'win32' ? ['python', 'py', 'python3'] : ['python3', 'python'];
+  for (const cmd of candidates) {
+    try {
+      execSync(`${cmd} --version`, { stdio: 'ignore' });
+      return cmd;
+    } catch (e) {}
+  }
+  return 'python';
+}
+
+async function isPortAvailable(port, host = '127.0.0.1') {
+  return new Promise((resolve) => {
+    const server = net.createServer();
+    server.once('error', () => resolve(false));
+    server.once('listening', () => {
+      server.close(() => resolve(true));
+    });
+    server.listen(port, host);
+  });
+}
+
+async function findAvailablePort(preferred = 8191) {
+  const candidates = [preferred, 8192, 8195, 8199, 8787, 38191];
+  for (const p of candidates) {
+    if (await isPortAvailable(p, '127.0.0.1')) {
+      return p;
+    }
+  }
+  return 8192;
+}
+
 /**
- * Ensure TurnstileSolver Python server is running on API_BASE
+ * Ensure TurnstileSolver Python server is running
  */
 export async function ensureSolverRunning() {
-  try {
-    const res = await fetch(`${API_BASE}/health`, { signal: AbortSignal.timeout(1000) });
-    if (res.ok) {
-      isSolverConfirmedRunning = true;
-      return true;
+  // 1. If already confirmed running, quick check
+  if (isSolverConfirmedRunning && activeSolverUrl) {
+    try {
+      const res = await fetch(`${activeSolverUrl}/health`, { signal: AbortSignal.timeout(800) });
+      if (res.ok) return true;
+    } catch (e) {
+      isSolverConfirmedRunning = false;
     }
-  } catch (e) {
-    isSolverConfirmedRunning = false;
   }
 
+  // 2. Check if an engine is already running or being started by another process
+  const portFile = path.resolve('solver/.solver_port');
+  if (fs.existsSync(portFile)) {
+    try {
+      const filePort = parseInt(fs.readFileSync(portFile, 'utf8').trim(), 10);
+      if (filePort) {
+        // Give an existing/starting engine up to 10 seconds to respond
+        for (let i = 0; i < 20; i++) {
+          try {
+            const res = await fetch(`http://127.0.0.1:${filePort}/health`, { signal: AbortSignal.timeout(600) });
+            if (res.ok) {
+              activeSolverUrl = `http://127.0.0.1:${filePort}`;
+              isSolverConfirmedRunning = true;
+              return true;
+            }
+          } catch (e) {}
+          await new Promise((r) => setTimeout(r, 500));
+        }
+      }
+    } catch (e) {}
+  }
+
+  const portsToCheck = [8191, 8192, 8195, 8199, 8787, 38191];
+  for (const p of portsToCheck) {
+    try {
+      const res = await fetch(`http://127.0.0.1:${p}/health`, { signal: AbortSignal.timeout(400) });
+      if (res.ok) {
+        activeSolverUrl = `http://127.0.0.1:${p}`;
+        isSolverConfirmedRunning = true;
+        return true;
+      }
+    } catch (e) {}
+  }
+
+  // 3. If starting is in progress in this process, wait for it
   if (isStartingServer) {
     let attempts = 0;
-    while (attempts < 20) {
-      await new Promise((r) => setTimeout(r, 500));
-      try {
-        const res = await fetch(`${API_BASE}/health`, { signal: AbortSignal.timeout(1000) });
-        if (res.ok) {
-          isSolverConfirmedRunning = true;
-          return true;
-        }
-      } catch (err) {}
+    while (attempts < 30) {
+      await new Promise((r) => setTimeout(r, 400));
+      if (isSolverConfirmedRunning && activeSolverUrl) return true;
       attempts++;
     }
-    return false;
+    return isSolverConfirmedRunning;
   }
 
   isStartingServer = true;
-  console.log('[TurnstileSolver] Starting embedded Python solver engine (solver/main.py)...');
 
   try {
     const solverPath = path.resolve('solver/main.py');
-    let solverPort = '8191';
-    try {
-      solverPort = new URL(API_BASE).port || '8191';
-    } catch (e) {}
-    solverProcess = spawn('python', [solverPath], {
-      stdio: 'ignore',
-      shell: true,
+    const pyCmd = detectPythonCommand();
+    const chosenPort = await findAvailablePort(8191);
+    activeSolverUrl = `http://127.0.0.1:${chosenPort}`;
+
+    console.log(`[TurnstileSolver] Starting embedded Python solver engine on port ${chosenPort} using "${pyCmd}"...`);
+
+    let errorOutput = '';
+    solverProcess = spawn(pyCmd, ['-u', solverPath], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      shell: false,
       detached: false,
-      env: { ...process.env, SOLVER_PORT: solverPort },
+      env: {
+        ...process.env,
+        PYTHONUNBUFFERED: '1',
+        SOLVER_PORT: String(chosenPort),
+        SOLVER_HOST: '127.0.0.1',
+      },
+    });
+
+    solverProcess.stdout?.on('data', (d) => {
+      const msg = d.toString().trim();
+      if (msg) console.log(`[TurnstileSolver] ${msg}`);
+    });
+
+    solverProcess.stderr?.on('data', (d) => {
+      const msg = d.toString().trim();
+      errorOutput += msg + '\n';
+      if (msg) console.log(`[TurnstileSolver] ${msg}`);
     });
 
     solverProcess.on('error', (err) => {
-      console.error('[TurnstileSolver] Failed to start python solver process:', err.message);
+      console.error('[TurnstileSolver] Failed to spawn python solver process:', err.message);
+    });
+
+    solverProcess.on('exit', (code) => {
+      if (code !== 0 && code !== null) {
+        console.error(`[TurnstileSolver] Process exited with code ${code}. Error details: ${errorOutput.trim() || 'Process terminated'}`);
+      }
     });
 
     let attempts = 0;
-    while (attempts < 30) {
-      await new Promise((r) => setTimeout(r, 500));
+    while (attempts < 50) {
+      if (solverProcess.exitCode !== null && solverProcess.exitCode !== 0) {
+        console.error(`[TurnstileSolver] Engine failed to start (Process exited with code ${solverProcess.exitCode}).`);
+        isStartingServer = false;
+        return false;
+      }
+
+      await new Promise((r) => setTimeout(r, 400));
       try {
-        const res = await fetch(`${API_BASE}/health`, { signal: AbortSignal.timeout(1000) });
+        const res = await fetch(`${activeSolverUrl}/health`, { signal: AbortSignal.timeout(1000) });
         if (res.ok) {
-          console.log('[TurnstileSolver] Engine successfully started and ready on ' + API_BASE);
+          console.log(`[TurnstileSolver] Engine successfully started and ready on ${activeSolverUrl}`);
           isStartingServer = false;
           isSolverConfirmedRunning = true;
           return true;
@@ -114,7 +218,7 @@ export class TurnstileClient {
 
   async _request(cmd, params = {}) {
     await ensureSolverRunning();
-    const url = `${API_BASE}/v1`;
+    const url = `${getApiBase()}/v1`;
     const payload = {
       cmd,
       session: this.sessionId,
@@ -146,7 +250,7 @@ export class TurnstileClient {
             continue;
           }
           throw new Error(
-            `Cannot connect to TurnstileSolver server at ${API_BASE}. Ensure python & zendriver are installed.`
+            `Cannot connect to TurnstileSolver server at ${getApiBase()}. Ensure python & zendriver are installed.`
           );
         }
         throw err;
@@ -320,10 +424,11 @@ export class TurnstileClient {
       fnStr = `(${fn.toString()})(...${JSON.stringify(args)})`;
     } else if (typeof fn === 'string') {
       const trimmed = fn.trim();
-      if (/^\s*\([^\)]*\)\s*=>/.test(trimmed) || /^\s*function\b/.test(trimmed) || /^\s*\([^)]*\)\s*\{/.test(trimmed)) {
-        fnStr = `(${trimmed})(...${JSON.stringify(args)})`;
-      } else if (/^\s*\(.*?\)\s*\(\s*\)$/.test(trimmed)) {
+      const isAlreadyInvoked = /\)\s*\([^\)]*\)\s*;?$/s.test(trimmed) || /\}\s*\([^\)]*\)\s*;?$/s.test(trimmed);
+      if (isAlreadyInvoked) {
         fnStr = trimmed;
+      } else if (/^\s*\(?\s*(function\b|(?:\([^)]*\)|[a-zA-Z_$][\w$]*)\s*=>)/s.test(trimmed)) {
+        fnStr = `(${trimmed})(...${JSON.stringify(args)})`;
       } else {
         fnStr = trimmed;
       }

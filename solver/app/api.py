@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse
 from .config import VERSION, settings
 from .models import ProxyConfig, V1Request, V1Response
 from .sessions import _base_browser_args, session_manager
-from .solver import solve_request, _get_cookies
+from .solver import solve_request, _get_cookies, _set_cookies
 
 logger = logging.getLogger(__name__)
 
@@ -59,8 +59,33 @@ try:
         )
     zd_net.Cookie.from_json = _patched_cookie_from_json
     logger.info("Successfully patched zendriver Cookie.from_json to prevent KeyError('sameParty')")
+
+    # Patch ClientSecurityState.from_json for Chrome 149+ (where privateNetworkRequestPolicy was renamed to localNetworkAccessRequestPolicy)
+    _orig_client_security_state_from_json = zd_net.ClientSecurityState.from_json
+    @classmethod
+    def _patched_client_security_state_from_json(cls, json_dict):
+        if "privateNetworkRequestPolicy" not in json_dict:
+            json_dict = dict(json_dict)
+            json_dict["privateNetworkRequestPolicy"] = json_dict.get("localNetworkAccessRequestPolicy", "PermissionBlock")
+        return _orig_client_security_state_from_json(json_dict)
+    zd_net.ClientSecurityState.from_json = _patched_client_security_state_from_json
+    logger.info("Successfully patched zendriver ClientSecurityState.from_json to prevent KeyError('privateNetworkRequestPolicy')")
 except Exception as cookie_patch_err:
-    logger.warning("Could not patch zendriver Cookie.from_json: %s", cookie_patch_err)
+    logger.warning("Could not patch zendriver cdp.network: %s", cookie_patch_err)
+
+try:
+    import zendriver.cdp.util as zd_cdp_util
+    _orig_parse_json_event = zd_cdp_util.parse_json_event
+    def _safe_parse_json_event(json_dict):
+        try:
+            return _orig_parse_json_event(json_dict)
+        except Exception as e:
+            # Silently ignore unmatched new event parameters from newer Chrome versions
+            return None
+    zd_cdp_util.parse_json_event = _safe_parse_json_event
+    logger.info("Successfully patched zendriver parse_json_event to safely absorb unhandled CDP event variations")
+except Exception as util_patch_err:
+    logger.warning("Could not patch zendriver parse_json_event: %s", util_patch_err)
 
 
 _cached_user_agent: Optional[str] = None
@@ -356,9 +381,7 @@ async def _dispatch(req: V1Request, start_ts: int) -> Dict[str, Any]:
         selector = req.turnstile_input_name or 'input[type="file"]'
         success = False
         try:
-            elem = await tab.select(selector, timeout=5)
-            if not elem and selector != 'input[type="file"]':
-                elem = await tab.select('input[type="file"]', timeout=3)
+            elem = await tab.select(selector, timeout=7)
             if elem:
                 await elem.send_file(file_path)
                 success = True

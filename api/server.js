@@ -311,12 +311,14 @@ httpServer.listen(PORT, async () => {
   // Initialize licensing and telemetry
   await initializeLicensing();
 
-  // Automatically start the TurnstileSolver Python engine in the background
+  // Automatically start and ensure TurnstileSolver Python engine is ready
   const { ensureSolverRunning, stopSolverProcess } = await import('../src/solver/turnstile-client.js');
-  console.log(`🌀 Starting TurnstileSolver Python engine in the background...`);
-  ensureSolverRunning().catch((err) => {
+  console.log(`🌀 Initializing TurnstileSolver Python engine...`);
+  try {
+    await ensureSolverRunning();
+  } catch (err) {
     console.error(`❌ Failed to start TurnstileSolver: ${err.message}`);
-  });
+  }
 
   // Graceful shutdown
   const shutdown = () => {

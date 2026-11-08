@@ -302,6 +302,8 @@ def _apply_profile_preferences(profile_dir: str, data_saver: bool = True) -> Non
 
         profile = prefs.setdefault("profile", {})
         content_settings = profile.setdefault("default_content_setting_values", {})
+        content_settings["notifications"] = 2  # 2 = Block notifications
+        content_settings["geolocation"] = 2    # 2 = Block geolocation
         if data_saver:
             content_settings["images"] = 2  # 2 = Block images
             content_settings["autoplay"] = 2  # 2 = Block autoplay
@@ -429,6 +431,11 @@ def _base_browser_args(data_saver: Optional[bool] = None) -> list:
         "--disable-software-rasterizer",
         "--disable-setuid-sandbox",
         "--no-first-run",
+        "--disable-notifications",
+        "--deny-permission-prompts",
+        "--disable-translate",
+        "--disable-infobars",
+        "--disable-popup-blocking",
         # Strict disk cache limits (max 10MB disk cache, 1MB media cache)
         "--disk-cache-size=10485760",
         "--media-cache-size=1048576",

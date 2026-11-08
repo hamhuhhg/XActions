@@ -314,16 +314,38 @@ export async function launchSafeBrowser(req, res) {
 
     const isDataSaver = dataSaver === undefined ? '1' : (dataSaver ? '1' : '0');
     const scriptPath = path.join(process.cwd(), 'scripts', 'safe_browser.js');
-    const b64Token = Buffer.from(effectiveToken || token || '').toString('base64');
+    const rawToken = effectiveToken || token || '';
+
+    // Write token to a temporary file to prevent Windows spawn ENAMETOOLONG on large cookie payloads
+    const tmpDir = path.join(process.cwd(), 'uploads', '.tmp_tokens');
+    if (!fs.existsSync(tmpDir)) {
+      fs.mkdirSync(tmpDir, { recursive: true });
+    }
+    const safeAccId = accountId ? String(accountId).replace(/[^a-zA-Z0-9_-]/g, '_') : 'default';
+    const tokenFilePath = path.join(tmpDir, `token_${safeAccId}_${Date.now()}.txt`);
+    fs.writeFileSync(tokenFilePath, rawToken, 'utf8');
+
     const nodeProcess = spawn('node', [
       scriptPath,
-      '--token_b64', b64Token,
+      '--token_file', tokenFilePath,
       '--platform', platform || 'twitter',
       '--accountId', accountId ? String(accountId) : 'default',
       '--dataSaver', isDataSaver
     ], {
       detached: true,
-      stdio: 'ignore',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    nodeProcess.stdout?.on('data', (d) => {
+      console.log(`[SafeBrowser] ${d.toString().trim()}`);
+    });
+
+    nodeProcess.stderr?.on('data', (d) => {
+      console.error(`[SafeBrowser Error] ${d.toString().trim()}`);
+    });
+
+    nodeProcess.on('error', (err) => {
+      console.error('Safe browser process error:', err);
     });
 
     nodeProcess.unref();
@@ -647,8 +669,11 @@ async function executeAutomationForAccount(authToken, content, accountName) {
 
 /**
  * Background runner for Facebook account automation in campaigns
+ * Supports:
+ * - Mode A: 'ai_agent' (Autonomous AI Browser Agent - Click-by-Click)
+ * - Mode B: 'smart_direct' (Direct Smart DOM Automation with anti-ban delays)
  */
-async function executeFacebookCampaignForAccount(authToken, content, accountName, accountId) {
+async function executeFacebookCampaignForAccount(authToken, content, accountName, accountId, campaignConfig = {}, campaignId = null) {
   const idMap = {};
 
   const resolveTarget = (target) => {
@@ -665,21 +690,66 @@ async function executeFacebookCampaignForAccount(authToken, content, accountName
     return unresolved ? null : resolved;
   };
 
+  const executionMode = campaignConfig.execution_mode || 'smart_direct';
+  console.log(`[FB Campaign Engine] Starting ${executionMode} campaign for ${accountName} (accountId: ${accountId})...`);
+
+  let successTasks = 0;
+  let failedTasks = 0;
+
   try {
-    console.log(`[FB Campaign Engine] Starting campaign for ${accountName} (accountId: ${accountId})...`);
     const { fb_post_timeline, fb_reply_comment, fb_warmup_accounts, closeBrowser } = await import('../../src/mcp/facebook-tools.js');
 
-    // 1. Post Timeline Posts (supports content.posts or content.fb_posts)
+    // 1. Post Posts (supports content.posts or content.fb_posts)
     const posts = content.posts || content.fb_posts || [];
     if (posts.length) {
       for (const p of posts) {
         try {
-          console.log(`[FB Campaign] ${accountName} posting to timeline: ${p.text.substring(0, 30)}...`);
-          const res = await fb_post_timeline({ text: p.text, imagePath: p.media || p.imagePath, cookie: authToken, accountId });
-          if (res?.success && p.refId) {
-            idMap[p.refId.trim()] = res.postUrl || 'https://www.facebook.com';
+          const targetUrl = p.targetUrl || campaignConfig.targetUrl || null;
+          const firstComment = p.firstComment || null;
+
+          if (executionMode === 'ai_agent') {
+            console.log(`[FB Campaign AI Agent] 🤖 Running click-by-click agent for ${accountName}: "${(p.text || '').substring(0, 30)}..."`);
+            const { runAiBrowserAgentForPost } = await import('../../src/automation/ai-browser-agent.js');
+            const agentResult = await runAiBrowserAgentForPost({
+              post: {
+                text: p.text,
+                media: p.media || p.imagePath,
+                targetUrl: targetUrl,
+                destinationType: p.destinationType || (targetUrl?.includes('/groups/') ? 'group' : 'profile'),
+                firstComment: firstComment,
+              },
+              account: { id: accountId, name: accountName, token: authToken },
+              settings: campaignConfig.ai_config || {},
+              onLog: (msg) => console.log(`[FB AI Agent | ${accountName}] ${msg}`),
+            });
+
+            if (agentResult.success) {
+              successTasks++;
+              if (p.refId) idMap[p.refId.trim()] = agentResult.post_url || 'https://www.facebook.com';
+            } else {
+              failedTasks++;
+              console.error(`[FB Campaign Action Error] AI Agent failed to publish post: ${agentResult.error || agentResult.note || 'Unknown error'}`);
+            }
+          } else {
+            console.log(`[FB Campaign Smart Direct] ⚡ Posting directly for ${accountName}: "${(p.text || '').substring(0, 30)}..."`);
+            const res = await fb_post_timeline({
+              text: p.text,
+              imagePath: p.media || p.imagePath,
+              targetUrl: targetUrl,
+              firstComment: firstComment,
+              cookie: authToken,
+              accountId,
+            });
+            if (res?.success) {
+              successTasks++;
+              if (p.refId) idMap[p.refId.trim()] = res.postUrl || 'https://www.facebook.com';
+            } else {
+              failedTasks++;
+              console.error(`[FB Campaign Action Error] Direct post failed: ${res?.error || 'Unknown error'}`);
+            }
           }
         } catch (err) {
+          failedTasks++;
           console.error(`[FB Campaign Action Error] Post failed: ${err.message}`);
         }
         await new Promise(r => setTimeout(r, 6000));
@@ -696,7 +766,9 @@ async function executeFacebookCampaignForAccount(authToken, content, accountName
 
           console.log(`[FB Campaign] ${accountName} commenting on ${target}: ${c.text.substring(0, 30)}...`);
           await fb_reply_comment({ postUrl: target, text: c.text, cookie: authToken, accountId });
+          successTasks++;
         } catch (err) {
+          failedTasks++;
           console.error(`[FB Campaign Action Error] Comment failed: ${err.message}`);
         }
         await new Promise(r => setTimeout(r, 6000));
@@ -713,12 +785,18 @@ async function executeFacebookCampaignForAccount(authToken, content, accountName
           cookie: authToken,
           accountId,
         });
+        successTasks++;
       } catch (err) {
+        failedTasks++;
         console.error(`[FB Campaign Warmup Error]: ${err.message}`);
       }
     }
 
-    console.log(`[FB Campaign] ✅ ${accountName} finished successfully!`);
+    if (failedTasks > 0) {
+      console.warn(`[FB Campaign] ⚠️ ${accountName} finished with ${failedTasks} errors (${successTasks} successful tasks).`);
+    } else {
+      console.log(`[FB Campaign] ✅ ${accountName} finished all ${successTasks} tasks successfully!`);
+    }
   } catch (e) {
     console.error(`[FB Campaign Engine Global Error] ${accountName}: ${e.message}`);
   } finally {
@@ -765,7 +843,7 @@ export async function executeCampaign(req, res) {
       const isFbAccount = (account.platform || '').toLowerCase() === 'facebook';
 
       if (isFacebookCampaign || isFbAccount) {
-        executeFacebookCampaignForAccount(account.token, content, account.name, account.id)
+        executeFacebookCampaignForAccount(account.token, content, account.name, account.id, config, id)
           .catch(err => console.error(`[FB Campaign Background Error] ${account.name}:`, err));
       } else {
         executeAutomationForAccount(account.token, content, account.name)
