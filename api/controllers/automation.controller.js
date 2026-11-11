@@ -706,9 +706,10 @@ async function executeFacebookCampaignForAccount(authToken, content, accountName
         try {
           const targetUrl = p.targetUrl || campaignConfig.targetUrl || null;
           const firstComment = p.firstComment || null;
+          const postToGroups = Boolean(campaignConfig.postToGroups || campaignConfig.post_to_groups || p.postToGroups);
 
           if (executionMode === 'ai_agent') {
-            console.log(`[FB Campaign AI Agent] 🤖 Running click-by-click agent for ${accountName}: "${(p.text || '').substring(0, 30)}..."`);
+            console.log(`[FB Campaign AI Agent] 🤖 Running click-by-click agent for ${accountName}: "${(p.text || '').substring(0, 30)}..." (postToGroups: ${postToGroups})`);
             const { runAiBrowserAgentForPost } = await import('../../src/automation/ai-browser-agent.js');
             const agentResult = await runAiBrowserAgentForPost({
               post: {
@@ -716,6 +717,7 @@ async function executeFacebookCampaignForAccount(authToken, content, accountName
                 media: p.media || p.imagePath,
                 targetUrl: targetUrl,
                 destinationType: p.destinationType || (targetUrl?.includes('/groups/') ? 'group' : 'profile'),
+                postToGroups: postToGroups,
                 firstComment: firstComment,
               },
               account: { id: accountId, name: accountName, token: authToken },
@@ -731,12 +733,13 @@ async function executeFacebookCampaignForAccount(authToken, content, accountName
               console.error(`[FB Campaign Action Error] AI Agent failed to publish post: ${agentResult.error || agentResult.note || 'Unknown error'}`);
             }
           } else {
-            console.log(`[FB Campaign Smart Direct] ⚡ Posting directly for ${accountName}: "${(p.text || '').substring(0, 30)}..."`);
+            console.log(`[FB Campaign Smart Direct] ⚡ Posting directly for ${accountName}: "${(p.text || '').substring(0, 30)}..." (postToGroups: ${postToGroups})`);
             const res = await fb_post_timeline({
               text: p.text,
               imagePath: p.media || p.imagePath,
               targetUrl: targetUrl,
               firstComment: firstComment,
+              postToGroups: postToGroups,
               cookie: authToken,
               accountId,
             });

@@ -186,6 +186,23 @@ function renderCampaignBuilder(container, platform = 'twitter') {
               </div>
             </div>
           </div>
+
+          <!-- General Groups Crossposting Option for Facebook Campaign -->
+          <div class="p-3 bg-blue-500/10 border border-blue-500/30 rounded-xl text-right" dir="rtl">
+            <label class="flex items-start gap-3 cursor-pointer">
+              <input type="checkbox" id="fb-campaign-post-to-groups" class="mt-0.5 w-4 h-4 text-blue-500 bg-slate-900 border-darkborder rounded">
+              <div class="space-y-0.5">
+                <div class="text-xs font-bold text-white flex items-center gap-2">
+                  <i class="fa-solid fa-users-rectangle text-blue-400"></i>
+                  <span>النشر في كل المجموعات (تحديد 9 مجموعات آلياً دفعة واحدة لكل المنشورات)</span>
+                  <span class="text-[9px] px-1.5 py-0.5 rounded bg-blue-500/30 text-blue-300 font-normal">Facebook 9 Groups</span>
+                </div>
+                <p class="text-[11px] text-slate-400 leading-relaxed">
+                  خيار عام للحملة: يتم نشر كل منشورات الحملة مع تفعيل خيار المجموعات؛ حيث يقوم الذكاء الاصطناعي بتحديد 9 مجموعات دفعة واحدة آلياً في كل منشور قبل نشره.
+                </p>
+              </div>
+            </label>
+          </div>
         </div>
       `;
     }
@@ -531,6 +548,9 @@ async function saveCampaignToDb() {
   }
   const accounts = Array.from(document.querySelectorAll('#campaign-accounts-list .account-checkbox:checked')).map(cb => cb.value);
 
+  const isFb = currentCampaignPlatform === 'facebook';
+  const postToGroupsGlobal = isFb ? Boolean(document.getElementById('fb-campaign-post-to-groups')?.checked) : false;
+
   const extract = (typeId) => Array.from(document.querySelectorAll(`#${typeId}-list > div`)).map(row => {
     const select = row.querySelector('.camp-target-select');
     let target = row.querySelector('.camp-target')?.value;
@@ -561,13 +581,12 @@ async function saveCampaignToDb() {
       target: target,
       targetUrl: targetUrl,
       destinationType: destinationType,
+      postToGroups: postToGroupsGlobal,
       firstComment: firstComment,
       media: row.querySelector('.camp-media-path')?.value || null,
       trendConfig: trendConfig
     };
   }).filter(c => (c.text && c.text.trim()) || (c.target && c.target.trim()) || c.media);
-
-  const isFb = currentCampaignPlatform === 'facebook';
 
   const content = isFb ? {
     posts: extract('posts'),
@@ -612,6 +631,8 @@ async function saveCampaignToDb() {
     target_accounts: accounts,
     ...(isFb ? {
       execution_mode: fbExecutionMode,
+      post_to_groups: postToGroupsGlobal,
+      postToGroups: postToGroupsGlobal,
       ai_config: aiConfig,
     } : {}),
   };
@@ -742,6 +763,11 @@ async function editCampaign(id) {
         if (document.getElementById('fb-ai-base-url') && b) document.getElementById('fb-ai-base-url').value = b;
         if (document.getElementById('fb-ai-api-key') && k) document.getElementById('fb-ai-api-key').value = k;
         if (document.getElementById('fb-ai-model') && m) document.getElementById('fb-ai-model').value = m;
+      }
+
+      const globalGroupsBox = document.getElementById('fb-campaign-post-to-groups');
+      if (globalGroupsBox) {
+        globalGroupsBox.checked = Boolean(config.postToGroups || config.post_to_groups || content.posts?.some(p => p.postToGroups));
       }
 
       ['posts', 'comments'].forEach(type => {

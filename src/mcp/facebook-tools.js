@@ -225,6 +225,75 @@ export async function dismissFacebookOverlays(client) {
   }
 }
 
+/**
+ * Waits until the live Facebook page is actually loaded and interactive
+ * (handles slow / poor internet: the DOM isn't ready right after goto()).
+ * - Polls document.readyState + Facebook mount points every 2s
+ * - If nothing mounts after `reloadAfterMs`, reloads the live page once
+ * Returns 'ready' | 'login' | 'timeout' (callers proceed with a warning on timeout).
+ */
+export async function waitFacebookReady(client, maxMs = 90000, { reloadAfterMs = 45000 } = {}) {
+  const started = Date.now();
+  let reloaded = false;
+  let lastLogged = 0;
+
+  while (Date.now() - started < maxMs) {
+    const state = await client.evaluate(`(() => {
+      const mountedBy = document.querySelector('#mount_0_0 div, #mount_0_0 [role], div[data-pagelet], div[role="main"], div[role="feed"], div[role="banner"]');
+      const bodyText = document.body ? (document.body.innerText || '').length : 0;
+      const bodyHtml = document.documentElement ? document.documentElement.outerHTML.length : 0;
+      const loginScreen = !!document.querySelector('input[type="password"], input[name="email"], form[action*="login" i]');
+      const external = !/facebook\\.com/i.test(location.hostname);
+      return {
+        readyState: document.readyState,
+        bodyText,
+        bodyHtml,
+        mounted: !!mountedBy,
+        loginScreen,
+        external,
+        href: window.location.href
+      };
+    })()`).catch(() => null);
+
+    if (state) {
+      if (state.external) {
+        console.warn(`[FB Ready] Browser left Facebook to: ${state.href}`);
+        return 'external';
+      }
+      if (state.loginScreen) {
+        console.log('[FB Ready] Detected login screen — cookies may have expired.');
+        return 'login';
+      }
+      const looksReady = state.mounted && state.bodyText > 100 && state.bodyHtml > 5000
+        && (state.readyState === 'complete' || state.readyState === 'interactive');
+      if (looksReady) {
+        console.log(`[FB Ready] ✅ Page interactive after ${Math.round((Date.now() - started) / 1000)}s (readyState: ${state.readyState}).`);
+        return 'ready';
+      }
+
+      const elapsed = Date.now() - started;
+      if (elapsed - lastLogged >= 10000) {
+        lastLogged = elapsed;
+        console.log(`[FB Ready] Waiting for page (readyState: ${state.readyState}, mounted: ${state.mounted}, text: ${state.bodyText})... ${Math.round(elapsed / 1000)}s`);
+      }
+
+      // Recover from a stuck half-loaded page: reload once and keep waiting
+      if (!reloaded && elapsed >= reloadAfterMs && !state.mounted) {
+        reloaded = true;
+        console.log('[FB Ready] Page did not mount in time — reloading live page once (slow network recovery)...');
+        await client.evaluate('() => { window.location.reload(); }').catch(() => {});
+        await sleep(6000);
+        continue;
+      }
+    }
+
+    await sleep(2000);
+  }
+
+  console.warn('[FB Ready Warning] Page readiness could not be confirmed within timeout; proceeding with best effort.');
+  return 'timeout';
+}
+
 export async function fb_login({ cookie, accountId }) {
   try {
     const sid = resolveSessionId(accountId, cookie);
@@ -246,7 +315,8 @@ export async function fb_login({ cookie, accountId }) {
     // Always navigate to facebook.com to load/refresh with active cookies
     console.log('[FB Auth] Navigating to https://www.facebook.com/ ...');
     await c.goto('https://www.facebook.com/');
-    await sleep(2500);
+    // Slow-internet safety: wait until the page is actually loaded before checking cookies
+    await waitFacebookReady(c, 60000).catch(() => 'timeout');
 
     const getStatus = async () => {
       return await c.evaluate(`() => {
@@ -260,7 +330,7 @@ export async function fb_login({ cookie, accountId }) {
         const continueBtn = Array.from(document.querySelectorAll('div[role="button"], button')).find(el => el.textContent.includes('Continue') || el.textContent.includes('متابعة'));
         if (continueBtn) return 'CONTINUE_SCREEN';
 
-        return 'UNKNOWN:' + window.location.href + '|' + (document.body.innerText || '').substring(0, 200);
+        return 'UNKNOWN:' + window.location.href + '|' + ((document.body && document.body.innerText) || '').substring(0, 200);
       }`);
     };
 
@@ -523,8 +593,19 @@ export async function fb_get_profile({ profileUrl, cookie, accountId }) {
   }
 }
 
-export async function fb_post_timeline({ text, imagePath, mediaPath, targetUrl, firstComment, cookie, accountId }) {
-  const c = await getClient({ accountId, cookie });
+export async function fb_post_timeline({ text, imagePath, mediaPath, targetUrl, firstComment, postToGroups, cookie, accountId }) {
+  // Data Saver blocks *.jpg/*.png/*.webp downloads via CDP, which breaks the
+  // composer image preview and upload verification — so when posting WITH an
+  // image, the session must run with Data Saver OFF.
+  const wantsImage = typeof (imagePath || mediaPath) === 'string' && (imagePath || mediaPath).trim();
+  if (wantsImage) {
+    console.log('[FB Post] Image detected in post — requesting session with Data Saver OFF (previews must load for upload verification).');
+  }
+  const c = await getClient({
+    accountId,
+    cookie,
+    ...(wantsImage ? { dataSaver: false } : {}),
+  });
   if (cookie) await fb_login({ cookie, accountId });
 
   try {
@@ -561,8 +642,30 @@ export async function fb_post_timeline({ text, imagePath, mediaPath, targetUrl, 
 
     const destUrl = (targetUrl && targetUrl.trim()) ? targetUrl.trim() : 'https://www.facebook.com/';
     console.log(`[FB Post] Navigating to destination: ${destUrl}`);
-    await c.goto(destUrl);
-    await sleep(4000);
+    const navAndAwait = async (url, maxMs) => {
+      await c.goto(url);
+      return await waitFacebookReady(c, maxMs);
+    };
+
+    // Slow-internet safety: wait until the page is genuinely loaded & interactive
+    // NEVER proceed with clicks while the page has not mounted — blind clicks hit
+    // sponsored feed ads (e.g. opening grammarly.com instead of posting)
+    let readyState = await navAndAwait(destUrl, 90000);
+    if (readyState === 'external') {
+      console.warn('[FB Post] Left Facebook during load (ad/redirect) — navigating back...');
+      readyState = await navAndAwait(destUrl, 60000);
+    }
+    if (readyState === 'login') {
+      throw new Error('يبدو أن جلسة فيسبوك انتهت (صفحة تسجيل الدخول). يرجى تحديث الكوكيز وإعادة المحاولة.');
+    }
+    if (readyState !== 'ready') {
+      // One retry navigation before giving up
+      console.warn('[FB Post] Page did not load in time — retrying navigation once...');
+      readyState = await navAndAwait(destUrl, 60000);
+    }
+    if (readyState !== 'ready') {
+      throw new Error('تعذّر تحميل صفحة فيسبوك نظراً لبطء الإنترنت. يرجى التحقق من الاتصال وإعادة المحاولة. (لم يتم تنفيذ أي نقرة لتفادي النقر على الإعلانات)');
+    }
 
     // Dismiss any notification prompts, translation bars, or modal banners
     await dismissFacebookOverlays(c);
@@ -578,8 +681,25 @@ export async function fb_post_timeline({ text, imagePath, mediaPath, targetUrl, 
       return await c.evaluate(`() => {
         if (document.querySelector('input[type="password"], input[name="email"]')) return 'LOGIN_SCREEN';
 
+        // SAFETY: never click inside paid/sponsored posts or foreign-link CTAs
+        // (blind feed clicking was opening sponsored ads like grammarly.com)
+        const isAdContext = (el) => {
+          const anchor = el.closest && el.closest('a[href]');
+          if (anchor && anchor.getAttribute) {
+            const href = anchor.getAttribute('href') || '';
+            if (href.includes('/a/?') || href.includes('/l.php') || href.includes('/a.php') || href.includes('utm_') || /(^|\\/\\/)(?!.*facebook\\.com)http/i.test(href)) return true;
+          }
+          const article = el.closest && el.closest('[role="article"]');
+          if (article) {
+            const head = ((article.innerText || article.textContent || '') + '').slice(0, 400);
+            if (/^\\s*(Sponsored|ممول|إعلان)/im.test(head)) return true;
+          }
+          return false;
+        };
+
         const triggerClick = (el) => {
           if (!el) return false;
+          if (isAdContext(el)) return false;
           ['mouseover', 'mousedown', 'mouseup', 'click'].forEach(name => {
             const event = new MouseEvent(name, { view: window, bubbles: true, cancelable: true, buttons: 1 });
             el.dispatchEvent(event);
@@ -588,16 +708,20 @@ export async function fb_post_timeline({ text, imagePath, mediaPath, targetUrl, 
           return true;
         };
 
-        // 1. Search by matching elements from deepest leaf elements backwards
-        const allElements = Array.from(document.querySelectorAll('div[role="button"], span, div, p'));
-        const matches = allElements.filter(el => {
-          const t = (el.innerText || el.textContent || '').trim().toLowerCase();
+        // 1. Keyword match (deepest elements first): composer placeholder text only
+        const matches = Array.from(document.querySelectorAll('div[role="button"], span')).filter(el => {
+          if (el.offsetHeight <= 0) return false;
+          const t = ((el.innerText || el.textContent || '') + '').trim().toLowerCase();
           const aria = (el.getAttribute('aria-label') || '').trim().toLowerCase();
+          // Ad CTA texts are never composer triggers
+          if (/^(اعرف المزيد|learn more|shop now|شاهد المزيد|see more|عرض المزيد|read more|قراءة المزيد)$/.test(t)) return false;
+          // Composer placeholders are short texts — long articles mentioning them must not match
+          if (t.length > 60) return false;
           const isMatch = t.includes('تفكر') || t.includes('mind') || t.includes('اكتب') || t.includes('write') ||
                           t.includes('إنشاء منشور') || t.includes('create post') ||
                           aria.includes('تفكر') || aria.includes('mind') || aria.includes('اكتب') || aria.includes('write') ||
                           aria.includes('إنشاء منشور') || aria.includes('create post');
-          return isMatch && el.offsetHeight > 0;
+          return isMatch && isAdContext(el) === false;
         });
 
         for (let i = matches.length - 1; i >= 0; i--) {
@@ -608,23 +732,18 @@ export async function fb_post_timeline({ text, imagePath, mediaPath, targetUrl, 
           }
         }
 
-        // 2. Direct selectors fallback
+        // 2. Known composer pagelets ONLY.
+        // Never blind-click generic feed buttons — those are frequently sponsored ads!
         const composerSelectors = [
           'div[data-pagelet="ProfileComposer"] div[role="button"]',
           'div[data-pagelet="GroupInlineComposer"] div[role="button"]',
-          'div[data-pagelet="FeedUnit_0"] div[role="button"]',
-          'div[role="main"] div[role="button"]',
-          'div[role="feed"] div[role="button"]'
+          'div[data-pagelet="Feed_Sidebar_Composer"] div[role="button"]'
         ];
 
         for (const selector of composerSelectors) {
           try {
-            const els = Array.from(document.querySelectorAll(selector));
-            for (const el of els) {
-              if (el.offsetHeight > 0) {
-                if (triggerClick(el)) return true;
-              }
-            }
+            const el = document.querySelector(selector);
+            if (el && el.offsetHeight > 0 && triggerClick(el)) return true;
           } catch(e) {}
         }
 
@@ -632,90 +751,225 @@ export async function fb_post_timeline({ text, imagePath, mediaPath, targetUrl, 
       }`);
     };
 
-    let clickSuccess = await clickComposerTrigger();
-    if (clickSuccess === 'LOGIN_SCREEN') throw new Error('يرجى تسجيل الدخول أولاً بحساب فيسبوك.');
+    // Helpers: URL safety + editor visibility (composer may be a dialog OR a full page)
+    const currentHref = async () => {
+      try { return String(await c.evaluate('() => window.location.href') || ''); } catch (e) { return ''; }
+    };
+    const isFacebookUrl = (href) => {
+      try {
+        const host = new URL(href).hostname || '';
+        return /(^|\.)facebook\./i.test(host);
+      } catch (e) {
+        return /(^|\.)facebook\./i.test(String(href || ''));
+      }
+    };
+    const editorVisible = () => c.evaluate(`() => {
+      const editors = Array.from(document.querySelectorAll('[contenteditable="true"], [role="textbox"], div[data-lexical-editor="true"]'));
+      return editors.some(e => {
+        const r = e.getBoundingClientRect();
+        return (r.width > 0 && r.height > 0) || e.offsetHeight > 0 || e.offsetWidth > 0;
+      });
+    }`);
+    const waitForEditor = async (maxMs = 15000) => {
+      const end = Date.now() + maxMs;
+      while (Date.now() < end) {
+        if (await editorVisible()) return true;
+        await sleep(1500);
+      }
+      return false;
+    };
 
-    await sleep(2500);
+    // Retry opening the composer until an editor actually appears.
+    // Facebook now often opens the composer as a FULL PAGE at /post/create
+    // (real navigation) — that must be supported, not treated as "left Facebook".
+    let composerOpen = false;
+    for (let attempt = 0; attempt < 10 && !composerOpen; attempt++) {
+      if (attempt > 0) {
+        console.log(`[FB Post] Composer not open (attempt ${attempt + 1}), dismissing overlays and retrying click...`);
+        await dismissFacebookOverlays(c);
+        await sleep(900);
+      }
+      const clickSuccess = await clickComposerTrigger();
+      if (clickSuccess === 'LOGIN_SCREEN') throw new Error('يرجى تسجيل الدخول أولاً بحساب فيسبوك.');
 
-    // If composer did not open on first attempt, dismiss overlays again and retry
-    const hasEditorAlready = await c.evaluate(`() => !!document.querySelector('[contenteditable="true"], [role="textbox"], div[data-lexical-editor="true"]')`);
-    if (!hasEditorAlready) {
-      console.log('[FB Post] Composer not open yet, checking overlays and retrying click...');
-      await dismissFacebookOverlays(c);
-      await sleep(1000);
-      clickSuccess = await clickComposerTrigger();
-      await sleep(2000);
+      // Progressive waiting: give Facebook time to mount the composer dialog/page
+      await sleep(2000 + attempt * 700);
+
+      const hrefNow = await currentHref();
+      if (/\/post\/create\b/i.test(hrefNow) || /\/composer\b/i.test(hrefNow)) {
+        console.log('[FB Post] Detected full-page composer (post/create) — waiting for its editor...');
+        composerOpen = await waitForEditor(15000);
+      } else {
+        composerOpen = await editorVisible();
+      }
+
+      // SAFETY: recover ONLY if we truly left the facebook.com domain
+      if (!composerOpen && hrefNow && !isFacebookUrl(hrefNow)) {
+        console.warn(`[FB Post] ⚠ A click left Facebook to: ${hrefNow} — recovering and navigating back...`);
+        await c.goto(destUrl);
+        await waitFacebookReady(c, 60000);
+        await dismissFacebookOverlays(c);
+      }
     }
 
-    // Wait for the text editor
-    console.log('[FB Post] Waiting for editor to become ready...');
+    if (!composerOpen) {
+      // Last resort for slow connections: fresh navigation and one final round
+      console.log('[FB Post] Composer never opened — navigating fresh for a final attempt...');
+      const finalState = await navAndAwait(destUrl, 60000);
+      if (finalState !== 'ready') {
+        throw new Error('تعذّر تحميل صفحة فيسبوك أو فتح نافذة إنشاء المنشور بسبب بطء الإنترنت. لم يُنفَّذ أي منشور — يرجى إعادة المحاولة.');
+      }
+      await dismissFacebookOverlays(c);
+      for (let attempt = 0; attempt < 4 && !composerOpen; attempt++) {
+        const clickSuccess = await clickComposerTrigger();
+        if (clickSuccess === 'LOGIN_SCREEN') throw new Error('يرجى تسجيل الدخول أولاً بحساب فيسبوك.');
+        await sleep(2500);
+        const hrefNow = await currentHref();
+        if (/\/post\/create\b/i.test(hrefNow) || /\/composer\b/i.test(hrefNow)) {
+          composerOpen = await waitForEditor(12000);
+        } else {
+          composerOpen = await editorVisible();
+        }
+      }
+    }
+
+    if (!composerOpen) {
+      throw new Error('تعذّر فتح نافذة إنشاء المنشور. قد توجد نافذة منبثقة تعيق النقر أو تغيّرت واجهة فيسبوك.');
+    }
+
+    // Shared page-side DOM helpers injected into every evaluate snippet below
+    const FB_DOM_HELPERS = String.raw`
+      const xaNorm = (s) => (s || '').replace(/[\u00A0\u200B\u200C\u200D\uFEFF]/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+      const xaFindDialog = () => {
+        const dialogs = Array.from(document.querySelectorAll('div[role="dialog"]'));
+        return dialogs.find(d => d.querySelector('[contenteditable="true"], [role="textbox"], div[data-lexical-editor="true"]')) || dialogs[0] || null;
+      };
+      const xaFindEditor = () => {
+        const pickBest = (scope) => {
+          const editors = Array.from(scope.querySelectorAll('[contenteditable="true"], [role="textbox"], div[data-lexical-editor="true"]'));
+          const visible = editors.filter(e => {
+            const r = e.getBoundingClientRect();
+            return (r.width > 5 && r.height > 5) || e.offsetHeight > 0 || e.offsetWidth > 0;
+          });
+          const scoreOf = (e) => {
+            const lp = ((e.getAttribute('aria-label') || '') + ' ' + (e.getAttribute('data-placeholder') || '')).toLowerCase();
+            let s = 0;
+            if (/comment|تعليق|رد/.test(lp)) s -= 10;
+            if (/mind|تفكر|what|ما هو|اكتب شيئ|create post|إنشاء منشور/.test(lp)) s += 6;
+            else if (/اكتب|write/.test(lp)) s += 2;
+            return s;
+          };
+          visible.sort((a, b) => scoreOf(b) - scoreOf(a));
+          return visible[0] || null;
+        };
+        const dialog = xaFindDialog();
+        if (dialog) {
+          const ed = pickBest(dialog);
+          if (ed) return ed;
+        }
+        return pickBest(document);
+      };
+      const xaClearEditor = (editor) => {
+        try {
+          editor.focus();
+          const range = document.createRange();
+          range.selectNodeContents(editor);
+          const sel = window.getSelection();
+          sel.removeAllRanges();
+          sel.addRange(range);
+          document.execCommand('delete', false, null);
+        } catch (e) {
+          try { editor.innerText = ''; } catch (e2) {}
+        }
+      };
+      const xaPaste = (editor, plain) => {
+        try {
+          const dt = new DataTransfer();
+          dt.setData('text/plain', plain);
+          editor.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: dt }));
+          return true;
+        } catch (e) {
+          return false;
+        }
+      };
+      const xaInsertByLines = (editor, plain) => {
+        editor.focus();
+        const lines = String(plain).split(/\r?\n/);
+        for (let i = 0; i < lines.length; i++) {
+          if (i > 0) {
+            let broke = false;
+            try { broke = document.execCommand('insertLineBreak', false, null); } catch (e) {}
+            if (!broke) {
+              try { editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true })); } catch (e) {}
+            }
+          }
+          if (lines[i]) {
+            let ok = false;
+            try { ok = document.execCommand('insertText', false, lines[i]); } catch (e) {}
+            if (!ok) xaPaste(editor, lines[i]);
+          }
+        }
+      };
+      const xaSetInnerText = (editor, plain) => {
+        editor.innerText = plain;
+        ['beforeinput', 'input', 'change'].forEach(n => editor.dispatchEvent(new Event(n, { bubbles: true })));
+      };
+    `;
+
+    // Wait for the text editor and paste text using a resilient multi-method ladder
+    console.log('[FB Post] Waiting for editor and pasting text (smart method ladder)...');
     let editorReady = null;
     const postTextJson = JSON.stringify(text);
 
-    for (let i = 0; i < 12; i++) {
-      editorReady = await c.evaluate(`() => {
-        const dialogs = Array.from(document.querySelectorAll('div[role="dialog"]'));
-        let dialog = null;
-        let editor = null;
+    for (let i = 0; i < 24; i++) {
+      editorReady = await c.evaluate(String.raw`() => {
+        ${FB_DOM_HELPERS}
+        const plain = ${postTextJson};
+        const target = xaNorm(plain);
+        if (!target) return { found: true, hasText: true, method: 'empty' };
+        const editor = xaFindEditor();
+        if (!editor) return { found: false, hasText: false };
+        try { editor.focus(); } catch (e) {}
+        try { editor.click(); } catch (e) {}
+        const current = xaNorm(editor.innerText || editor.textContent || '');
+        if (current === target) return { found: true, hasText: true, method: 'already' };
 
-        // Prioritize dialog containing editable element
-        for (const d of dialogs) {
-          const ed = d.querySelector('[contenteditable="true"], [role="textbox"], div[data-lexical-editor="true"], div[aria-label*="mind" i], div[aria-label*="تفكر" i], div[aria-label*="write" i], div[aria-label*="اكتب" i]');
-          if (ed && (ed.offsetHeight > 0 || ed.offsetWidth > 0 || ed.getBoundingClientRect().height > 0)) {
-            dialog = d;
-            editor = ed;
-            break;
-          }
+        // Method 1: native paste event (most reliable for Lexical/ProseMirror composers)
+        if (current.length) xaClearEditor(editor);
+        xaPaste(editor, plain);
+        editor.dispatchEvent(new Event('input', { bubbles: true }));
+        let after = xaNorm(editor.innerText || editor.textContent || '');
+        if (after && (after.includes(target) || target.includes(after))) {
+          return { found: true, hasText: true, method: 'paste' };
         }
 
-        // Fallback to main page / inline composer if not inside role="dialog"
-        if (!editor) {
-          editor = document.querySelector('div[role="main"] [contenteditable="true"], [contenteditable="true"], div[data-lexical-editor="true"]');
-          dialog = editor ? (editor.closest('div[role="dialog"]') || document.body) : null;
+        // Method 2: per-line simulated typing (handles paragraphs correctly)
+        xaClearEditor(editor);
+        xaInsertByLines(editor, plain);
+        editor.dispatchEvent(new Event('input', { bubbles: true }));
+        after = xaNorm(editor.innerText || editor.textContent || '');
+        if (after && (after.includes(target) || target.includes(after))) {
+          return { found: true, hasText: true, method: 'exec' };
         }
 
-        if (editor && (editor.offsetHeight > 0 || editor.offsetWidth > 0 || editor.getBoundingClientRect().height > 0)) {
-          editor.focus();
-          try { editor.click(); } catch(e) {}
-
-          const postText = ${postTextJson};
-
-          // Safely set text inside the text editor without deleting outer dialog/media containers
-          try {
-            const range = document.createRange();
-            range.selectNodeContents(editor);
-            const sel = window.getSelection();
-            sel.removeAllRanges();
-            sel.addRange(range);
-            document.execCommand('insertText', false, postText);
-          } catch(e) {
-            try {
-              document.execCommand('insertText', false, postText);
-            } catch(e2) {
-              editor.innerText = postText;
-            }
-          }
-
-          ['beforeinput', 'input', 'change'].forEach(name => {
-            editor.dispatchEvent(new Event(name, { bubbles: true }));
-          });
-
-          const currentContent = (editor.innerText || editor.textContent || '').trim();
-          const hasText = currentContent.includes(postText);
-
-          return { found: true, hasText };
+        // Method 3: direct innerText write (last JS resort)
+        xaClearEditor(editor);
+        xaSetInnerText(editor, plain);
+        after = xaNorm(editor.innerText || editor.textContent || '');
+        if (after && (after.includes(target) || target.includes(after))) {
+          return { found: true, hasText: true, method: 'innerText' };
         }
-        return { found: false, hasText: false };
+
+        return { found: true, hasText: false, afterLen: after.length };
       }`);
 
       if (editorReady && editorReady.found) {
-        if (!editorReady.hasText) {
-          console.log('[FB Post] Editor focused, inserting text via CDP fallback...');
-          await c.type(text);
-        } else {
-          console.log('[FB Post] Text inserted successfully via editor.');
+        if (editorReady.hasText) {
+          console.log(`[FB Post] Text set successfully via '${editorReady.method}' method.`);
+          await sleep(1500);
+          break;
         }
-        await sleep(1500);
+        console.log('[FB Post] In-page insertion did not stick, switching to driver typing...');
         break;
       }
       await sleep(1500);
@@ -725,141 +979,248 @@ export async function fb_post_timeline({ text, imagePath, mediaPath, targetUrl, 
       throw new Error('لم يتم العثور على مربع إدخال النص في نافذة المنشور.');
     }
 
+    if (!editorReady.hasText) {
+      // Fallback: real keyboard typing through the browser driver
+      try {
+        await c.type(text);
+      } catch (e) {
+        console.error('[FB Post] Driver typing failed:', e.message);
+      }
+      await sleep(1200);
+      const textVerified = await c.evaluate(String.raw`() => {
+        ${FB_DOM_HELPERS}
+        const target = xaNorm(${postTextJson});
+        const editor = xaFindEditor();
+        if (!editor) return false;
+        const cur = xaNorm(editor.innerText || editor.textContent || '');
+        return !!(cur && (cur.includes(target) || target.includes(cur)));
+      }`);
+      if (!textVerified) {
+        throw new Error('تعذّر إدخال النص في مربع المنشور بعد تجربة عدة طرق. قد تكون واجهة فيسبوك قد تغيّرت.');
+      }
+      console.log('[FB Post] Text verified after driver typing.');
+    }
+
     // Attach image if provided
     if (localFilePath && fs.existsSync(localFilePath)) {
       console.log(`[FB Post] Attaching image file: ${localFilePath}`);
       try {
-        // Step A: Ensure photo upload area/input is active in dialog
-        await c.evaluate(`() => {
-          const dialogs = Array.from(document.querySelectorAll('div[role="dialog"]'));
-          const dialog = dialogs.find(d => d.querySelector('[contenteditable="true"], [role="textbox"], div[data-lexical-editor="true"]')) || dialogs[0];
-          if (!dialog) return false;
-          
-          let fileInput = dialog.querySelector('input[type="file"]');
-          if (!fileInput) {
-            const buttons = Array.from(dialog.querySelectorAll('div[role="button"], button'));
-            const photoBtn = buttons.find(b => {
-              const aria = (b.getAttribute('aria-label') || '').toLowerCase();
-              const txt = (b.innerText || b.textContent || '').toLowerCase();
-              const isForbidden = aria.includes('remove') || aria.includes('إزالة') || aria.includes('delete') || aria.includes('حذف') || aria.includes('close') || aria.includes('إغلاق');
-              if (isForbidden) return false;
-              return (
-                aria === 'photo/video' || aria === 'صورة/فيديو' ||
-                aria.includes('photo/video') || aria.includes('صورة/فيديو') ||
-                aria.includes('photo') || aria.includes('صورة') ||
-                txt.includes('photo/video') || txt.includes('صورة/فيديو') ||
-                txt.includes('photo') || txt.includes('صورة')
-              );
-            });
-            if (photoBtn) {
-              try { photoBtn.click(); return true; } catch(e) {}
+        let attachVerified = false;
+
+        for (let attempt = 0; attempt < 4 && !attachVerified; attempt++) {
+          // A. Locate and tag the best file input (dialog first, then document-wide)
+          const tagged = await c.evaluate(() => {
+            document.querySelectorAll('input[data-xa-finput]').forEach(el => el.removeAttribute('data-xa-finput'));
+            const all = Array.from(document.querySelectorAll('input[type="file"]')).filter(el => !el.disabled);
+            const dialog = document.querySelector('div[role="dialog"]');
+            const ordered = dialog
+              ? all.filter(el => dialog.contains(el)).concat(all.filter(el => !dialog.contains(el)))
+              : all;
+            const pick = ordered[0] || null;
+            if (pick) {
+              pick.setAttribute('data-xa-finput', '1');
+              return true;
             }
-          }
-          return false;
-        }`);
-        await sleep(2000);
-
-        // Wait up to 5s for input[type="file"] to appear in dialog
-        for (let w = 0; w < 10; w++) {
-          const hasInput = await c.evaluate(`() => !!(document.querySelector('div[role="dialog"] input[type="file"]') || document.querySelector('input[type="file"]'))`);
-          if (hasInput) break;
-          await sleep(500);
-        }
-
-        // Step B: Send file via CDP targeting the input[type="file"]
-        const sent = await c.sendFile('div[role="dialog"] input[type="file"]', localFilePath);
-        console.log(`[FB Post] File send result: ${sent}`);
-        await sleep(1000);
-
-        // Dispatch change event to notify React/Facebook handlers
-        await c.evaluate(`() => {
-          const dialogs = Array.from(document.querySelectorAll('div[role="dialog"]'));
-          const dialog = dialogs.find(d => d.querySelector('[contenteditable="true"], [role="textbox"], div[data-lexical-editor="true"]')) || dialogs[0];
-          const inputs = dialog ? Array.from(dialog.querySelectorAll('input[type="file"]')) : Array.from(document.querySelectorAll('input[type="file"]'));
-          inputs.forEach(input => {
-            try {
-              input.dispatchEvent(new Event('change', { bubbles: true }));
-            } catch(e) {}
+            return false;
           });
-        }`);
 
-        // Step C: Wait for the image upload to complete and preview to mount
-        console.log('[FB Post] Waiting for image upload to complete and preview to mount...');
-        let uploadFinished = false;
-        for (let u = 0; u < 25; u++) {
-          const status = await c.evaluate(`() => {
-            const dialogs = Array.from(document.querySelectorAll('div[role="dialog"]'));
-            const dialog = dialogs.find(d => d.querySelector('[contenteditable="true"], [role="textbox"], div[data-lexical-editor="true"]')) || dialogs[0];
-            if (!dialog) return { ready: false };
+          if (!tagged) {
+            // B. Spawn a file input by clicking the Photo/Video button
+            await c.evaluate(String.raw`() => {
+              const dialog = document.querySelector('div[role="dialog"]');
+              const scopes = dialog ? [dialog, document] : [document];
+              const seen = new Set();
+              const clickable = [];
+              for (const scope of scopes) {
+                scope.querySelectorAll('div[role="button"], button, span[role="button"], a[role="link"]').forEach(el => {
+                  if (seen.has(el)) return;
+                  seen.add(el);
+                  const r = el.getBoundingClientRect();
+                  if (r.width <= 0 || r.height <= 0) return;
+                  const label = ((el.getAttribute('aria-label') || '') + ' ' + (el.innerText || el.textContent || '') + ' ' + (el.getAttribute('title') || '')).toLowerCase();
+                  const forbidden = /remove|إزالة|delete|حذف|close|إغلاق|cancel|إلغاء|edit photo|تعديل الصورة|reels|ريلز|feeling|شعور/.test(label);
+                  const isPhoto = /photo\s*\/\s*video/i.test(label) || /صورة\s*\/\s*فيديو/.test(label) || /photo|صورة/.test(label);
+                  if (isPhoto && !forbidden) clickable.push(el);
+                });
+              }
+              if (!clickable.length) return false;
+              const depthOf = (el) => { let d = 0; let n = el; while (n.parentElement) { d++; n = n.parentElement; } return d; };
+              clickable.sort((a, b) => depthOf(b) - depthOf(a));
+              const target = clickable[0].closest('div[role="button"], button') || clickable[0];
+              ['mouseover', 'mousedown', 'mouseup', 'click'].forEach(name => {
+                try { target.dispatchEvent(new MouseEvent(name, { view: window, bubbles: true, cancelable: true, buttons: 1 })); } catch (e) {}
+              });
+              try { target.click(); } catch (e) {}
+              return true;
+            }`);
+            await sleep(2200);
+            continue;
+          }
 
-            // Check for image preview in dialog (works even when images rendering is blocked)
-            const imgs = Array.from(dialog.querySelectorAll('img')).filter(img => {
-              const src = img.src || '';
-              return (src.startsWith('blob:') || src.startsWith('data:') || src.includes('scontent') || src.includes('fbcdn'))
-                && !src.includes('/emoji/') && !src.includes('/rsrc.php/');
+          // C. Send the file to the tagged input via the driver
+          console.log('[FB Post] Sending file to the tagged file input...');
+          let sent = false;
+          try { sent = await c.sendFile('input[data-xa-finput]', localFilePath); } catch (e) { console.error('[FB Post] sendFile #1 error:', e.message); }
+          if (!sent) {
+            try { sent = await c.sendFile('div[role="dialog"] input[type="file"]', localFilePath); } catch (e) {}
+          }
+          if (!sent) {
+            try { sent = await c.sendFile('input[type="file"]', localFilePath); } catch (e) {}
+          }
+          console.log(`[FB Post] File send result: ${sent}`);
+          await sleep(2000);
+
+          // Notify framework handlers about the change
+          await c.evaluate(`() => {
+            document.querySelectorAll('input[data-xa-finput], input[type="file"]').forEach(input => {
+              try { input.dispatchEvent(new Event('change', { bubbles: true })); } catch (e) {}
             });
-            const hasMediaContainer = !!dialog.querySelector('[aria-label*="Photo"], [aria-label*="صورة"], [data-testid*="media"], div[role="img"], div[data-visualcompletion="media-vc-image"]');
-            const hasInputFileFilled = Array.from(dialog.querySelectorAll('input[type="file"]')).some(inp => inp.files && inp.files.length > 0);
-            const hasImage = imgs.length > 0 || hasInputFileFilled || hasMediaContainer;
-
-            // Check for upload progress bar
-            const progressBar = dialog.querySelector('[role="progressbar"], div[data-visualcompletion="loading-state"]');
-            const isUploading = !!progressBar;
-
-            // Check if post button is ready
-            const buttons = Array.from(dialog.querySelectorAll('div[role="button"], button'));
-            const postBtn = buttons.find(b => {
-              const label = (b.getAttribute('aria-label') || '').trim().toLowerCase();
-              const text = (b.innerText || b.textContent || '').trim().toLowerCase();
-              return (label === 'post' || label === 'نشر' || text === 'post' || text === 'نشر');
-            });
-            const canPost = postBtn && postBtn.getAttribute('aria-disabled') !== 'true';
-
-            return { hasImage, isUploading, canPost, ready: hasImage && !isUploading && canPost };
           }`);
 
-          if (status && (status.ready || (status.hasImage && status.canPost))) {
-            console.log('[FB Post] ✅ Image uploaded and ready in composer!');
-            uploadFinished = true;
-            break;
+          // D. Wait for upload completion + preview to mount (longer window for slow internet)
+          let uploadDone = false;
+          for (let u = 0; u < 40; u++) {
+            const status = await c.evaluate(String.raw`() => {
+              const dialog = document.querySelector('div[role="dialog"]');
+              const scope = dialog || document;
+              const hasFilled = Array.from(scope.querySelectorAll('input[type="file"]')).some(inp => inp.files && inp.files.length > 0);
+              const imgs = Array.from(scope.querySelectorAll('img')).filter(img => {
+                const src = img.src || '';
+                return (src.startsWith('blob:') || src.startsWith('data:') || src.includes('scontent') || src.includes('fbcdn')) && !src.includes('/emoji/') && !src.includes('/rsrc.php/');
+              });
+              const hasMediaContainer = !!scope.querySelector('[aria-label*="Photo" i], [aria-label*="صورة"], div[role="img"], div[data-visualcompletion="media-vc-image"]');
+              const isUploading = !!scope.querySelector('[role="progressbar"], div[data-visualcompletion="loading-state"]');
+              const hasImage = hasFilled || imgs.length > 0 || hasMediaContainer;
+              const buttons = Array.from(scope.querySelectorAll('div[role="button"], button'));
+              const postBtn = buttons.find(b => {
+                const label = ((b.getAttribute('aria-label') || '') + ' ' + (b.innerText || b.textContent || '')).trim().toLowerCase();
+                return label === 'post' || label === 'نشر';
+              });
+              const canPost = !!(postBtn && postBtn.getAttribute('aria-disabled') !== 'true');
+              return { hasImage, isUploading, canPost, ready: hasImage && !isUploading };
+            }`);
+
+            if (status && (status.ready || (status.hasImage && status.canPost))) {
+              console.log('[FB Post] ✅ Image uploaded and ready in composer!');
+              uploadDone = true;
+              break;
+            }
+            await sleep(1500);
           }
 
-          await sleep(1500);
+          if (uploadDone) {
+            attachVerified = true;
+          } else if (attempt < 3) {
+            console.log(`[FB Post] Upload not confirmed (attempt ${attempt + 1}), retrying attach flow...`);
+            await sleep(1000);
+          }
+        }
+
+        if (!attachVerified) {
+          console.warn('[FB Post Warning] Upload could not be verified; continuing with current composer state.');
         }
       } catch (attachErr) {
         console.error('[FB Post] Error attaching image:', attachErr.message);
       }
     }
 
-    // Step D: Verify text is present in the editor
-    await c.evaluate(`() => {
-      const dialogs = Array.from(document.querySelectorAll('div[role="dialog"]'));
-      const dialog = dialogs.find(d => d.querySelector('[contenteditable="true"], [role="textbox"], div[data-lexical-editor="true"]')) || dialogs[0];
-      if (!dialog) return;
-      const editor = dialog.querySelector('[contenteditable="true"], [role="textbox"], div[data-lexical-editor="true"]');
-      if (editor) {
-        const postText = ${postTextJson};
-        const current = (editor.innerText || editor.textContent || '').trim();
-        if (!current.includes(postText)) {
-          try {
-            editor.focus();
-            document.execCommand('insertText', false, postText);
-          } catch(e) {}
-        }
+    // Step D: Verify text is present in the editor (works with dialog OR /post/create page)
+    await c.evaluate(String.raw`() => {
+      ${FB_DOM_HELPERS}
+      const editor = xaFindEditor();
+      if (!editor) return;
+      const postText = ${postTextJson};
+      const current = (editor.innerText || editor.textContent || '').trim();
+      if (!current.includes(postText)) {
+        try {
+          editor.focus();
+          document.execCommand('insertText', false, postText);
+        } catch(e) {}
       }
     }`);
 
     await sleep(2000);
 
+    // Step D2: If postToGroups is requested, select up to 9 groups all at once
+    if (postToGroups) {
+      console.log('[FB Post] 👥 Groups crossposting requested — opening "Post in more places" and selecting up to 9 groups all at once...');
+      try {
+        await c.evaluate(`(() => {
+          const visible = (el) => {
+            const r = el && el.getBoundingClientRect ? el.getBoundingClientRect() : null;
+            return !!r && r.width > 0 && r.height > 0;
+          };
+          const triggerClick = (target) => {
+            ['mouseover', 'mousedown', 'mouseup'].forEach(name => {
+              target.dispatchEvent(new MouseEvent(name, { view: window, bubbles: true, cancelable: true, buttons: 1 }));
+            });
+            try { target.click(); } catch (e) {
+              target.dispatchEvent(new MouseEvent('click', { view: window, bubbles: true, cancelable: true }));
+            }
+          };
+          const composer = document.querySelector('div[role="dialog"]') || document;
+          const buttons = Array.from(composer.querySelectorAll('div[role="button"], button, [role="button"], span[role="button"]')).filter(visible);
+          const moreBtn = buttons.find(b => {
+            const label = ((b.getAttribute('aria-label') || '') + ' ' + (b.innerText || '')).toLowerCase();
+            if (/close|إغلاق|remove|إزالة|delete|حذف|photo|صورة|video|فيديو|feeling|شعور|tag|إشارة/i.test(label)) return false;
+            return label.includes('مزيد من الأماكن') || label.includes('more places') || label.includes('share to groups') || label.includes('مشاركة في مجموعات') || (label.includes('مجموعات') && !label.includes('قواعد')) || (label.includes('groups') && !label.includes('rules'));
+          });
+          if (moreBtn) triggerClick(moreBtn);
+        })()`);
+        await sleep(2000);
+        await c.evaluate(`(() => {
+          const visible = (el) => {
+            const r = el && el.getBoundingClientRect ? el.getBoundingClientRect() : null;
+            return !!r && r.width > 0 && r.height > 0;
+          };
+          const triggerClick = (target) => {
+            ['mouseover', 'mousedown', 'mouseup'].forEach(name => {
+              target.dispatchEvent(new MouseEvent(name, { view: window, bubbles: true, cancelable: true, buttons: 1 }));
+            });
+            try { target.click(); } catch (e) {
+              target.dispatchEvent(new MouseEvent('click', { view: window, bubbles: true, cancelable: true }));
+            }
+          };
+          const dialogs = Array.from(document.querySelectorAll('div[role="dialog"]'));
+          const groupsDialog = dialogs[dialogs.length - 1] || document;
+          const checkboxes = Array.from(groupsDialog.querySelectorAll('div[role="checkbox"], input[type="checkbox"], [aria-checked]')).filter(visible);
+          const toSelect = checkboxes.filter(c => c.getAttribute('aria-checked') !== 'true' && !c.checked).slice(0, 9);
+          for (const cb of toSelect) {
+            triggerClick(cb);
+            if (cb.tagName === 'INPUT' && cb.type === 'checkbox') cb.checked = true;
+            try { cb.setAttribute('aria-checked', 'true'); } catch (e) {}
+          }
+          const allButtons = Array.from(groupsDialog.querySelectorAll('div[role="button"], button')).filter(visible);
+          const doneBtn = allButtons.find(b => {
+            const label = ((b.getAttribute('aria-label') || '') + ' ' + (b.innerText || '')).trim().toLowerCase();
+            return /^(done|تم|save|حفظ|back|رجوع)$/i.test(label) || label.includes('done') || label.includes('تم') || label.includes('back');
+          });
+          if (doneBtn) triggerClick(doneBtn);
+        })()`);
+        await sleep(1500);
+        console.log('[FB Post] ✅ Groups crossposting selection completed.');
+      } catch (grpErr) {
+        console.warn('[FB Post Warning] Could not select groups:', grpErr.message);
+      }
+    }
+
     // Step E: Click submit/post button and wait for confirmation
     console.log('[FB Post] Submitting post...');
     let submitted = false;
+    const submitAttempt = async (attempt) => {
+      const clicked = await c.evaluate(() => {
+        // Any remaining visible composer editor means "not posted yet"
+        const editors = Array.from(document.querySelectorAll('[contenteditable="true"], [role="textbox"], div[data-lexical-editor="true"]'));
+        const editorStillVisible = editors.some(e => {
+          const r = e.getBoundingClientRect();
+          return (r.width > 0 && r.height > 0) || e.offsetHeight > 0 || e.offsetWidth > 0;
+        });
+        if (!editorStillVisible) return true; // posted: no editable composer remains anywhere
 
-    for (let s = 0; s < 12; s++) {
-      submitted = await c.evaluate(`() => {
+        // Work on the composer dialog if present, otherwise on the whole page (/post/create mode)
         const dialogs = Array.from(document.querySelectorAll('div[role="dialog"]'));
-        const dialog = dialogs.find(d => d.querySelector('[contenteditable="true"], [role="textbox"], div[data-lexical-editor="true"]')) || dialogs[0];
-        if (!dialog) return true; // Dialog closed means posted!
+        const dialog = dialogs.find(d => d.querySelector('[contenteditable="true"], [role="textbox"], div[data-lexical-editor="true"]')) || null;
+        const scope = dialog || document.body;
 
         const triggerClick = (target) => {
           ['mouseover', 'mousedown', 'mouseup', 'click'].forEach(name => {
@@ -869,21 +1230,21 @@ export async function fb_post_timeline({ text, imagePath, mediaPath, targetUrl, 
           try { target.click(); } catch (e) {}
         };
 
-        const buttons = Array.from(dialog.querySelectorAll('div[role="button"], button'));
-        
-        // 1. Check by aria-label / text (نشر / Post)
+        const buttons = Array.from(scope.querySelectorAll('div[role="button"], button'));
+
+        // 1. Match by aria-label / visible text (Post / نشر / publish variants)
         for (const btn of buttons) {
-          const label = (btn.getAttribute('aria-label') || '').trim().toLowerCase();
-          const text = (btn.innerText || btn.textContent || '').trim().toLowerCase();
-          if (label === 'post' || label === 'نشر' || text === 'post' || text === 'نشر') {
-            if (btn.getAttribute('aria-disabled') !== 'true') {
-              triggerClick(btn);
-              return true;
-            }
+          const label = ((btn.getAttribute('aria-label') || '') + ' ' + (btn.innerText || btn.textContent || '')).trim().toLowerCase();
+          const exactHit = ['post', 'نشر', 'publish', 'انشر'].some(v => label === v);
+          const containsHit = (label.includes('post') || label.includes('نشر')) && label.length <= 16
+            && !/remove|إزالة|cancel|إلغاء|delete|حذف|copy|نسخ|save|حفظ|embed|تضمين|later|لاحقا|reels|ريلز/.test(label);
+          if ((exactHit || containsHit) && btn.getAttribute('aria-disabled') !== 'true') {
+            triggerClick(btn);
+            return true;
           }
         }
 
-        // 2. Check by blue style button
+        // 2. Fallback: the enabled blue action button
         const blueBtn = buttons.find(b => {
           const style = window.getComputedStyle(b);
           const bg = style.backgroundColor;
@@ -897,20 +1258,35 @@ export async function fb_post_timeline({ text, imagePath, mediaPath, targetUrl, 
         }
 
         return false;
-      }`);
+      });
 
-      if (submitted) {
+      if (clicked) {
         await sleep(2500);
-        const stillOpen = await c.evaluate(`() => {
-          const dialogs = Array.from(document.querySelectorAll('div[role="dialog"]'));
-          return dialogs.some(d => d.querySelector('[contenteditable="true"], [role="textbox"], div[data-lexical-editor="true"]'));
-        }`);
+        const stillOpen = await editorVisible();
         if (!stillOpen) {
-          console.log('[FB Post] Post submitted and dialog closed successfully.');
-          break;
+          console.log('[FB Post] Post submitted and composer closed successfully.');
+          return true;
         }
+      } else if (attempt >= 6) {
+        // Fallback: Ctrl+Enter keyboard shortcut on the focused editor
+        await c.evaluate(`() => {
+          const editors = Array.from(document.querySelectorAll('[contenteditable="true"], [role="textbox"]'));
+          const editor = editors[editors.length - 1];
+          if (editor) { try { editor.focus(); } catch (e) {} }
+          const tgt = document.activeElement || document.body;
+          ['keydown', 'keyup'].forEach(type => {
+            tgt.dispatchEvent(new KeyboardEvent(type, { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, ctrlKey: true, bubbles: true, cancelable: true }));
+          });
+        }`);
+        await sleep(2000);
       }
 
+      return false;
+    };
+
+    for (let s = 0; s < 12; s++) {
+      submitted = await submitAttempt(s);
+      if (submitted) break;
       await sleep(2000);
     }
 
@@ -922,38 +1298,66 @@ export async function fb_post_timeline({ text, imagePath, mediaPath, targetUrl, 
       try {
         await sleep(3000);
         // Find comment button or active comment input on the topmost post
-        await c.evaluate(`() => {
-          const commentButtons = Array.from(document.querySelectorAll('div[role="button"], span')).filter(el => {
-            const txt = (el.innerText || el.textContent || '').trim().toLowerCase();
-            const aria = (el.getAttribute('aria-label') || '').trim().toLowerCase();
-            return txt === 'comment' || txt === 'تعليق' || aria.includes('comment') || aria.includes('تعليق');
-          });
-          if (commentButtons.length > 0) {
-            try { commentButtons[0].click(); } catch(e) {}
-          }
-        }`);
-        await sleep(2000);
-
-        const commentInserted = await c.evaluate(`((commentText) => {
-          const dialog = document.querySelector('div[role="dialog"]');
-          const editor = (dialog || document).querySelector('div[aria-label*="comment" i][contenteditable="true"], div[aria-label*="تعليق" i][contenteditable="true"], div[data-lexical-editor="true"][role="textbox"], form input[placeholder*="comment" i], form input[placeholder*="تعليق" i]');
-          if (editor) {
-            editor.focus();
-            try {
-              document.execCommand('insertText', false, commentText);
-            } catch(e) {
-              editor.innerText = commentText;
+        // (retry a few times: on slow internet the new post takes a while to render)
+        let commentOpened = false;
+        for (let r = 0; r < 5 && !commentOpened; r++) {
+          await c.evaluate(`() => {
+            const commentButtons = Array.from(document.querySelectorAll('div[role="button"], span')).filter(el => {
+              const txt = (el.innerText || el.textContent || '').trim().toLowerCase();
+              const aria = (el.getAttribute('aria-label') || '').trim().toLowerCase();
+              return txt === 'comment' || txt === 'تعليق' || aria.includes('comment') || aria.includes('تعليق');
+            });
+            const visible = commentButtons.find(el => {
+              const btn = el.closest('div[role="button"]') || el;
+              const rect = btn.getBoundingClientRect();
+              return rect.width > 0 && rect.height > 0;
+            });
+            if (visible) {
+              const btn = visible.closest('div[role="button"]') || visible;
+              try {
+                ['mouseover', 'mousedown', 'mouseup', 'click'].forEach(name => btn.dispatchEvent(new MouseEvent(name, { view: window, bubbles: true, cancelable: true, buttons: 1 })));
+                btn.click();
+              } catch(e) {}
             }
-            editor.dispatchEvent(new Event('input', { bubbles: true }));
-            return true;
-          }
-          return false;
-        })(${JSON.stringify(firstComment.trim())})`);
+          }`);
+          await sleep(2000);
+          commentOpened = await c.evaluate(`() => {
+            const editors = Array.from(document.querySelectorAll('div[aria-label*="comment" i][contenteditable="true"], div[aria-label*="تعليق" i][contenteditable="true"]'));
+            return editors.some(el => {
+              const rc = el.getBoundingClientRect();
+              return rc.width > 0 && rc.height > 0;
+            });
+          }`);
+          if (!commentOpened) console.log(`[FB Post] Comment editor not open yet (retry ${r + 1}/5)...`);
+        }
 
-        if (commentInserted) {
-          await sleep(1000);
-          await c.type(firstComment.trim());
-          await sleep(1000);
+        // Paste the comment using the smart method ladder (avoids duplicate text)
+        const commentResult = await c.evaluate(String.raw`() => {
+          ${FB_DOM_HELPERS}
+          const plain = ${JSON.stringify(firstComment.trim())};
+          const target = xaNorm(plain);
+          const editor = Array.from(document.querySelectorAll('div[aria-label*="comment" i][contenteditable="true"], div[aria-label*="تعليق" i][contenteditable="true"], div[aria-label*="اكتب تعليق" i][contenteditable="true"]'))
+            .find(el => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; }) || null;
+          if (!editor) return { found: false, hasText: false };
+          try { editor.focus(); editor.click(); } catch (e) {}
+          xaPaste(editor, plain);
+          editor.dispatchEvent(new Event('input', { bubbles: true }));
+          const cur = xaNorm(editor.innerText || editor.textContent || '');
+          if (cur && (cur.includes(target) || target.includes(cur))) return { found: true, hasText: true };
+          xaClearEditor(editor);
+          xaInsertByLines(editor, plain);
+          editor.dispatchEvent(new Event('input', { bubbles: true }));
+          const after = xaNorm(editor.innerText || editor.textContent || '');
+          return { found: true, hasText: !!(after && (after.includes(target) || target.includes(after))) };
+        }`);
+
+        if (!commentResult || !commentResult.found) {
+          console.warn('[FB Post Warning] Comment editor not found on the page.');
+        } else {
+          if (!commentResult.hasText) {
+            try { await c.type(firstComment.trim()); } catch (e) {}
+            await sleep(800);
+          }
           await c.evaluate(`() => {
             const el = document.activeElement;
             if (el) {
@@ -962,7 +1366,7 @@ export async function fb_post_timeline({ text, imagePath, mediaPath, targetUrl, 
               });
             }
           }`);
-          console.log('[FB Post] ✅ First comment posted successfully.');
+          console.log('[FB Post] ✅ First comment submitted.');
         }
       } catch (commentErr) {
         console.warn('[FB Post Warning] Could not post first comment:', commentErr.message);
@@ -970,7 +1374,17 @@ export async function fb_post_timeline({ text, imagePath, mediaPath, targetUrl, 
     }
 
     console.log('[FB Post] Process complete.');
-    return { success: true, message: 'تم نشر المنشور بنجاح.' };
+
+    // Try to capture the URL of the freshly published post
+    let postUrl = null;
+    try {
+      postUrl = await c.evaluate(`() => {
+        const a = Array.from(document.querySelectorAll('a[href*="/posts/"], a[href*="/permalink/"], a[href*="/story.php"]')).find(x => x.offsetHeight > 0);
+        return a ? a.href : null;
+      }`);
+    } catch (e) {}
+
+    return { success: true, message: 'تم نشر المنشور بنجاح.', postUrl: postUrl || null };
   } catch (error) {
     console.error('[FB Post Error]', error.message);
     throw error;

@@ -104,6 +104,20 @@ Done.`;
       expect(prompt).toContain(firstComment);
       expect(prompt).toContain('COMMENT_TEXT>>>');
     });
+
+    it('should include groups crossposting instructions when postToGroups is true', () => {
+      const prompt = buildFacebookAgentPrompt({
+        post: {
+          text: 'منشور ترويجي في كل المجموعات',
+          postToGroups: true,
+        },
+        accountName: 'TechAccount',
+      });
+
+      expect(prompt).toContain('GROUPS CROSSPOSTING INSTRUCTION');
+      expect(prompt).toContain('select_post_groups');
+      expect(prompt).toContain('النشر في كل المجموعات');
+    });
   });
 
   describe('BROWSER_TOOLS Schema', () => {
@@ -115,6 +129,7 @@ Done.`;
       expect(toolNames).toContain('type_text');
       expect(toolNames).toContain('file_upload');
       expect(toolNames).toContain('wait');
+      expect(toolNames).toContain('select_post_groups');
     });
 
     it('should have valid schema for each tool', () => {
