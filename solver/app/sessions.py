@@ -301,6 +301,8 @@ def _apply_profile_preferences(profile_dir: str, data_saver: bool = True) -> Non
             prefs = {}
 
         profile = prefs.setdefault("profile", {})
+        profile["exit_type"] = "Normal"
+        profile["exited_cleanly"] = True
         content_settings = profile.setdefault("default_content_setting_values", {})
         content_settings["notifications"] = 2  # 2 = Block notifications
         content_settings["geolocation"] = 2    # 2 = Block geolocation
@@ -436,6 +438,8 @@ def _base_browser_args(data_saver: Optional[bool] = None) -> list:
         "--disable-translate",
         "--disable-infobars",
         "--disable-popup-blocking",
+        "--disable-session-crashed-bubble",
+        "--hide-crash-restore-bubble",
         # Strict disk cache limits (max 10MB disk cache, 1MB media cache)
         "--disk-cache-size=10485760",
         "--media-cache-size=1048576",

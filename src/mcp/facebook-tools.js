@@ -1143,48 +1143,110 @@ export async function fb_post_timeline({ text, imagePath, mediaPath, targetUrl, 
 
     // Step D2: If postToGroups is requested, select up to 9 groups all at once
     if (postToGroups) {
-      console.log('[FB Post] 👥 Groups crossposting requested — opening "Post in more places" and selecting up to 9 groups all at once...');
+      console.log('[FB Post] 👥 Groups crossposting requested — opening groups selector and selecting up to 9 groups all at once...');
       try {
+        // Step D2.1: Advance from composer if button is "التالي" (Next)
         await c.evaluate(`(() => {
           const visible = (el) => {
             const r = el && el.getBoundingClientRect ? el.getBoundingClientRect() : null;
             return !!r && r.width > 0 && r.height > 0;
           };
           const triggerClick = (target) => {
+            if (!target) return;
+            const btn = target.closest('div[role="button"], button, [role="button"], a[role="button"]') || target;
+            try { btn.focus(); } catch (e) {}
             ['mouseover', 'mousedown', 'mouseup'].forEach(name => {
-              target.dispatchEvent(new MouseEvent(name, { view: window, bubbles: true, cancelable: true, buttons: 1 }));
+              try { btn.dispatchEvent(new MouseEvent(name, { view: window, bubbles: true, cancelable: true, buttons: 1 })); } catch (e) {}
             });
-            try { target.click(); } catch (e) {
-              target.dispatchEvent(new MouseEvent('click', { view: window, bubbles: true, cancelable: true }));
+            try { btn.click(); } catch (e) {
+              try { btn.dispatchEvent(new MouseEvent('click', { view: window, bubbles: true, cancelable: true })); } catch (err) {}
             }
           };
-          const composer = document.querySelector('div[role="dialog"]') || document;
-          const buttons = Array.from(composer.querySelectorAll('div[role="button"], button, [role="button"], span[role="button"]')).filter(visible);
-          const moreBtn = buttons.find(b => {
-            const label = ((b.getAttribute('aria-label') || '') + ' ' + (b.innerText || '')).toLowerCase();
-            if (/close|إغلاق|remove|إزالة|delete|حذف|photo|صورة|video|فيديو|feeling|شعور|tag|إشارة/i.test(label)) return false;
-            return label.includes('مزيد من الأماكن') || label.includes('more places') || label.includes('share to groups') || label.includes('مشاركة في مجموعات') || (label.includes('مجموعات') && !label.includes('قواعد')) || (label.includes('groups') && !label.includes('rules'));
+          const dialogs = Array.from(document.querySelectorAll('div[role="dialog"]'));
+          const topDialog = dialogs[dialogs.length - 1] || document;
+          const buttons = Array.from(topDialog.querySelectorAll('div[role="button"], button, [role="button"], span[role="button"]')).filter(visible);
+          const nextBtn = buttons.find(b => {
+            const t = ((b.getAttribute('aria-label') || '') + ' ' + (b.innerText || '')).trim().toLowerCase();
+            if (/close|إغلاق|remove|إزالة|delete|حذف|cancel|إلغاء/i.test(t)) return false;
+            return /^(next|التالي)$/i.test(t) || t === 'next' || t === 'التالي' || (t.includes('التالي') && t.length <= 10) || (t.includes('next') && t.length <= 10);
           });
-          if (moreBtn) triggerClick(moreBtn);
+          if (nextBtn) triggerClick(nextBtn);
         })()`);
-        await sleep(2000);
+        await sleep(2500);
+
+        // Step D2.2: Find and click Groups option
         await c.evaluate(`(() => {
           const visible = (el) => {
             const r = el && el.getBoundingClientRect ? el.getBoundingClientRect() : null;
             return !!r && r.width > 0 && r.height > 0;
           };
           const triggerClick = (target) => {
+            if (!target) return;
+            const btn = target.closest('div[role="button"], button, [role="button"], a[role="button"]') || target;
+            try { btn.focus(); } catch (e) {}
             ['mouseover', 'mousedown', 'mouseup'].forEach(name => {
-              target.dispatchEvent(new MouseEvent(name, { view: window, bubbles: true, cancelable: true, buttons: 1 }));
+              try { btn.dispatchEvent(new MouseEvent(name, { view: window, bubbles: true, cancelable: true, buttons: 1 })); } catch (e) {}
             });
-            try { target.click(); } catch (e) {
-              target.dispatchEvent(new MouseEvent('click', { view: window, bubbles: true, cancelable: true }));
+            try { btn.click(); } catch (e) {
+              try { btn.dispatchEvent(new MouseEvent('click', { view: window, bubbles: true, cancelable: true })); } catch (err) {}
+            }
+          };
+          const dialogs = Array.from(document.querySelectorAll('div[role="dialog"]'));
+          const searchScopes = dialogs.length > 0 ? dialogs.slice().reverse() : [document];
+          for (const scope of searchScopes) {
+            const candidates = Array.from(scope.querySelectorAll('div[role="button"], button, [role="button"], a[role="button"], div[role="listitem"], span, div')).filter(visible);
+            for (const el of candidates) {
+              const aria = (el.getAttribute('aria-label') || '').trim().toLowerCase();
+              const txt = (el.innerText || el.textContent || '').trim().toLowerCase();
+              if (/^(close|إغلاق|remove|إزالة|delete|حذف|cancel|إلغاء)$/i.test(aria) || /^(close|إغلاق|remove|إزالة|delete|حذف|cancel|إلغاء)$/i.test(txt)) continue;
+              if (/^(back|رجوع)$/i.test(aria) || /^(back|رجوع)$/i.test(txt)) continue;
+              if (txt === 'العامة' || txt === 'الأصدقاء' || txt === 'أنا فقط' || aria.includes('تحديد الجمهور') || aria.includes('audience')) continue;
+              if (aria.includes('ترويج') || aria.includes('boost') || txt.startsWith('ترويج') || txt.startsWith('boost')) continue;
+              if (/^(نشر|post|مشاركة|share)$/i.test(txt) || /^(نشر|post)$/i.test(aria)) continue;
+
+              const isGroupMatch =
+                aria.includes('مجموعات') || aria.includes('groups') || aria.includes('مزيد من الأماكن') || aria.includes('more places') ||
+                txt.includes('مجموعات') || txt.includes('groups') || txt.includes('مزيد من الأماكن') || txt.includes('more places') ||
+                txt.includes('مشاركة في مجموعات') || txt.includes('مشاركة في المجموعات') || txt.includes('share to groups') || txt.includes('post to groups');
+
+              if (isGroupMatch) {
+                const clickable = el.closest('div[role="button"], button, [role="button"], a[role="button"], div[role="listitem"]') || el;
+                const clickTxt = (clickable.innerText || clickable.getAttribute('aria-label') || '').trim().toLowerCase();
+                if (/^(نشر|post)$/i.test(clickTxt)) continue;
+                if (clickTxt.startsWith('ترويج') || clickTxt.startsWith('boost')) continue;
+                triggerClick(clickable);
+                return;
+              }
+            }
+          }
+        })()`);
+        await sleep(2500);
+
+        // Step D2.3: Select up to 9 groups and confirm
+        await c.evaluate(`(() => {
+          const visible = (el) => {
+            const r = el && el.getBoundingClientRect ? el.getBoundingClientRect() : null;
+            return !!r && r.width > 0 && r.height > 0;
+          };
+          const triggerClick = (target) => {
+            if (!target) return;
+            const btn = target.closest('div[role="button"], button, [role="button"], a[role="button"]') || target;
+            try { btn.focus(); } catch (e) {}
+            ['mouseover', 'mousedown', 'mouseup'].forEach(name => {
+              try { btn.dispatchEvent(new MouseEvent(name, { view: window, bubbles: true, cancelable: true, buttons: 1 })); } catch (e) {}
+            });
+            try { btn.click(); } catch (e) {
+              try { btn.dispatchEvent(new MouseEvent('click', { view: window, bubbles: true, cancelable: true })); } catch (err) {}
             }
           };
           const dialogs = Array.from(document.querySelectorAll('div[role="dialog"]'));
           const groupsDialog = dialogs[dialogs.length - 1] || document;
-          const checkboxes = Array.from(groupsDialog.querySelectorAll('div[role="checkbox"], input[type="checkbox"], [aria-checked]')).filter(visible);
-          const toSelect = checkboxes.filter(c => c.getAttribute('aria-checked') !== 'true' && !c.checked).slice(0, 9);
+          const allCheckboxes = Array.from(groupsDialog.querySelectorAll('div[role="checkbox"], input[type="checkbox"], [aria-checked]')).filter(visible);
+          const groupCheckboxes = allCheckboxes.filter(cb => {
+            const label = ((cb.getAttribute('aria-label') || '') + ' ' + (cb.innerText || '') + ' ' + (cb.parentElement?.innerText || '')).toLowerCase();
+            return !label.includes('ترويج') && !label.includes('boost') && !label.includes('إعلان') && !label.includes('ad');
+          });
+          const toSelect = groupCheckboxes.filter(c => c.getAttribute('aria-checked') !== 'true' && !c.checked).slice(0, 9);
           for (const cb of toSelect) {
             triggerClick(cb);
             if (cb.tagName === 'INPUT' && cb.type === 'checkbox') cb.checked = true;
@@ -1193,11 +1255,14 @@ export async function fb_post_timeline({ text, imagePath, mediaPath, targetUrl, 
           const allButtons = Array.from(groupsDialog.querySelectorAll('div[role="button"], button')).filter(visible);
           const doneBtn = allButtons.find(b => {
             const label = ((b.getAttribute('aria-label') || '') + ' ' + (b.innerText || '')).trim().toLowerCase();
-            return /^(done|تم|save|حفظ|back|رجوع)$/i.test(label) || label.includes('done') || label.includes('تم') || label.includes('back');
-          });
+            return /^(done|تم|save|حفظ|تأكيد|confirm)$/i.test(label) || label === 'done' || label === 'تم';
+          }) || allButtons.find(b => {
+            const label = ((b.getAttribute('aria-label') || '') + ' ' + (b.innerText || '')).trim().toLowerCase();
+            return label.includes('رجوع') || label.includes('back');
+          }) || groupsDialog.querySelector('div[role="button"][aria-label*="رجوع"], div[role="button"][aria-label*="Back"]');
           if (doneBtn) triggerClick(doneBtn);
         })()`);
-        await sleep(1500);
+        await sleep(2000);
         console.log('[FB Post] ✅ Groups crossposting selection completed.');
       } catch (grpErr) {
         console.warn('[FB Post Warning] Could not select groups:', grpErr.message);

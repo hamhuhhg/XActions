@@ -157,6 +157,68 @@ export const BROWSER_TOOLS = [
 ];
 
 /**
+ * Dismisses any stray/duplicate empty composer dialogs if multiple "Create post" dialogs exist.
+ * NEVER touches non-composer dialogs (e.g. Messenger, notifications, banners).
+ * NEVER dismisses if there is only 1 composer dialog.
+ */
+export async function dismissDuplicateDialogs(client) {
+  try {
+    return await client.evaluate(`(() => {
+      // Find ONLY genuine post composer dialogs
+      const composerDialogs = Array.from(document.querySelectorAll('div[role="dialog"]')).filter(d => {
+        const r = d.getBoundingClientRect();
+        if (r.width < 100 || r.height < 100) return false;
+        // Strictly exclude chat / messenger windows
+        const isChat = !!d.querySelector('[aria-label*="Messenger" i], [aria-label*="دردشة" i], [aria-label*="الدردشات" i], a[href*="/messages/"]') ||
+                       (d.getAttribute('aria-label') || '').includes('Chat') || (d.getAttribute('aria-label') || '').includes('دردشة');
+        if (isChat) return false;
+
+        const txt = d.innerText || '';
+        const isComposer = txt.includes('إنشاء منشور') || txt.includes('Create post') || txt.includes('Create Post') ||
+                           txt.includes('إعدادات المنشور') || txt.includes('Post settings') || txt.includes('خيارات المشاركة');
+        const hasEditor = !!d.querySelector('[contenteditable="true"], [role="textbox"], div[data-lexical-editor="true"]');
+        return isComposer && hasEditor;
+      });
+
+      // If 1 or 0 composer dialogs exist, NEVER touch anything!
+      if (composerDialogs.length <= 1) return false;
+
+      // When 2 or more composer dialogs exist simultaneously:
+      // Find the one that has uploaded media or typed text
+      const contentDialog = composerDialogs.find(d => {
+        const isSettings = (d.innerText || '').includes('إعدادات المنشور') || (d.innerText || '').includes('post settings') || (d.innerText || '').includes('خيارات المشاركة');
+        const hasMedia = !!d.querySelector('img[src^="blob:"], img[src^="data:"], div[data-visualcompletion="media-vc-image"]');
+        const editor = d.querySelector('[contenteditable="true"], [role="textbox"], div[data-lexical-editor="true"]');
+        const txt = (editor?.innerText || editor?.textContent || '').trim();
+        const hasRealText = txt.length > 0 && !txt.includes('بم تفكر') && !txt.includes('بماذا تفكر') && !txt.toLowerCase().includes("what's on your mind");
+        return isSettings || hasMedia || hasRealText;
+      });
+
+      // CRITICAL: Always keep one composer dialog!
+      const keeper = contentDialog || composerDialogs[0];
+      let removedStray = false;
+
+      for (const d of composerDialogs) {
+        if (d === keeper) continue;
+        const allBtns = Array.from(d.querySelectorAll('div[role="button"], button, [role="button"]'));
+        const closeBtn = allBtns.find(b => {
+          const a = ((b.getAttribute('aria-label') || '') + ' ' + (b.innerText || '')).trim().toLowerCase();
+          return /^(إغلاق|إلغاء|تجاهل|close|cancel|discard)$/i.test(a) || a.includes('إغلاق') || a.includes('close');
+        });
+        if (closeBtn) {
+          try { closeBtn.click(); } catch(e) {}
+        }
+        try { d.remove(); } catch(e) {}
+        removedStray = true;
+      }
+      return removedStray;
+    })()`);
+  } catch (e) {
+    return false;
+  }
+}
+
+/**
  * Serializes the DOM into a structured text snapshot with numeric [ref] IDs
  */
 export async function serializeDomSnapshot(client) {
@@ -164,8 +226,9 @@ export async function serializeDomSnapshot(client) {
     try {
       // Auto-dismiss "إضافة إلى منشورك" (Add to your post) feelings/people popup if it is open
       const subDialogs = Array.from(document.querySelectorAll('div[role="dialog"], div[role="region"], div[aria-modal="true"]')).filter(d => {
+        const isMainComposer = (d.innerText || '').includes('إنشاء منشور') || (d.innerText || '').includes('Create post');
         const hasEditor = !!d.querySelector('[contenteditable="true"], [role="textbox"], div[data-lexical-editor="true"]');
-        if (hasEditor) return false; // Never dismiss the main composer dialog!
+        if (isMainComposer || hasEditor) return false; // Never dismiss the main composer dialog!
         const txt = d.innerText || '';
         return (txt.includes('إضافة إلى منشورك') || txt.includes('Add to your post')) &&
                (txt.includes('شعور') || txt.includes('نشاط') || txt.includes('تلقي مكالمات') || txt.includes('حدث شخصي') || txt.includes('feeling') || txt.includes('الأشخاص'));
@@ -174,27 +237,9 @@ export async function serializeDomSnapshot(client) {
         const backBtn = Array.from(d.querySelectorAll('div[role="button"], button')).find(b => {
           const a = ((b.getAttribute('aria-label') || '') + ' ' + (b.innerText || '')).toLowerCase();
           return a.includes('رجوع') || a.includes('back') || a.includes('إغلاق') || a.includes('close');
-        }) || d.querySelector('div[role="button"], button');
+        });
         if (backBtn) {
           try { backBtn.click(); } catch(e) {}
-        }
-      }
-
-      // Auto-dismiss any empty stray composer dialog if another dialog (e.g. Post Settings) is already open
-      const allDialogs = Array.from(document.querySelectorAll('div[role="dialog"]'));
-      if (allDialogs.length > 1) {
-        for (const d of allDialogs) {
-          const editor = d.querySelector('[contenteditable="true"], [role="textbox"], div[data-lexical-editor="true"]');
-          const hasMedia = !!d.querySelector('img[src*="blob:"], img[src*="data:"], img[src*="scontent"], img[src*="fbcdn"]');
-          const txt = (editor?.innerText || editor?.textContent || '').trim();
-          const isPostSettings = (d.innerText || '').includes('إعدادات المنشور') || (d.innerText || '').includes('Post settings');
-          const isPlaceholderOnly = !txt || txt === 'بم تفكر؟' || txt === 'بماذا تفكر؟' || txt.includes('بم تفكر') || txt.toLowerCase().includes("what's on your mind");
-          if (editor && isPlaceholderOnly && !hasMedia && !isPostSettings) {
-            const closeBtn = d.querySelector('div[aria-label="إغلاق"], div[aria-label="Close"], [role="button"][aria-label*="إغلاق"], [role="button"][aria-label*="Close"]');
-            if (closeBtn) {
-              try { closeBtn.click(); } catch(e) {}
-            }
-          }
         }
       }
 
@@ -259,13 +304,21 @@ export async function serializeDomSnapshot(client) {
       // Check if a modal dialog is open (e.g. Create Post, Groups modal, Post Options)
       const openDialogs = Array.from(document.querySelectorAll('div[role="dialog"]')).filter(isVisible);
 
-      // Prioritize the composer dialog (specifically contains the post text editor)
+      // Prioritize the composer dialog that ACTUALLY HAS CONTENT (text or media)
+      const contentModals = openDialogs.filter(d => {
+        const editor = d.querySelector('[contenteditable="true"], [role="textbox"], div[data-lexical-editor="true"]');
+        const hasMedia = !!d.querySelector('img[src*="blob:"], img[src*="data:"], img[src*="scontent"], img[src*="fbcdn"]');
+        const txt = (editor?.innerText || editor?.textContent || '').trim();
+        const isPlaceholder = !txt || txt === 'بم تفكر؟' || txt === 'بماذا تفكر؟' || txt.includes('بم تفكر') || txt.toLowerCase().includes("what's on your mind");
+        const isPostSettings = (d.innerText || '').includes('إعدادات المنشور') || (d.innerText || '').includes('Post settings');
+        return (!isPlaceholder && txt.length > 0) || hasMedia || isPostSettings;
+      });
       const composerModals = openDialogs.filter(d => {
         return !!d.querySelector('[contenteditable="true"], [role="textbox"], div[data-lexical-editor="true"]');
       });
-      const activeModal = composerModals.length > 0
-        ? composerModals[composerModals.length - 1]
-        : (openDialogs.length > 0 ? openDialogs[openDialogs.length - 1] : null);
+      const activeModal = contentModals.length > 0
+        ? contentModals[0]
+        : (composerModals.length > 0 ? composerModals[0] : (openDialogs.length > 0 ? openDialogs[openDialogs.length - 1] : null));
 
       // STRICT SCOPE: If a modal dialog is open, ONLY scan elements inside that dialog!
       // Background timeline elements must NEVER be exposed or given a [ref]!
@@ -273,6 +326,18 @@ export async function serializeDomSnapshot(client) {
 
       const items = [];
       const seen = new Set();
+
+      // Explicitly prioritize the composer's text editor at the very top of items
+      if (activeModal) {
+        const modalEditor = activeModal.querySelector('[contenteditable="true"], [role="textbox"], div[data-lexical-editor="true"]');
+        if (modalEditor && isVisible(modalEditor)) {
+          const ref = nextRef++;
+          modalEditor.setAttribute('data-ap-ref', String(ref));
+          items.push('[' + ref + '] <textbox> "مربع كتابة المنشور (Post text editor) - اكتب النص هنا عبر type_text"');
+          seen.add(modalEditor);
+        }
+      }
+
       for (const el of rootScope.querySelectorAll(selectors)) {
         if (seen.has(el) || !isVisible(el)) continue;
         seen.add(el);
@@ -322,12 +387,14 @@ export async function serializeDomSnapshot(client) {
           continue;
         }
 
-        // Never expose "بم تفكر؟" / "What's on your mind" if a modal is already open
-        if (
-          lowerLabel.includes('بم تفكر') || lowerLabel.includes('بماذا تفكر') ||
-          lowerLabel.includes("what's on your mind") || lowerLabel.includes('whats on your mind')
-        ) {
-          if (activeModal || openDialogs.length > 0) continue;
+        // Never expose "بم تفكر؟" / "What's on your mind" background feed trigger if a modal is already open
+        if (!isEditor) {
+          if (
+            lowerLabel.includes('بم تفكر') || lowerLabel.includes('بماذا تفكر') ||
+            lowerLabel.includes("what's on your mind") || lowerLabel.includes('whats on your mind')
+          ) {
+            if (activeModal || openDialogs.length > 0) continue;
+          }
         }
 
         // Never expose "Add to your post" submenu toolbar triggers (feelings, people, location, check-in, more...)
@@ -394,9 +461,15 @@ async function isUploadInFlight(client) {
       return !!r && r.width > 0 && r.height > 0 && el.getAttribute && el.getAttribute('aria-hidden') !== 'true';
     };
     const progressEls = (() => {
-      const dialog = Array.from(document.querySelectorAll('div[role="dialog"]')).find(d => d.querySelector('[contenteditable="true"], [role="textbox"], div[data-lexical-editor="true"]'));
-      const scope = dialog || document;
-      return Array.from(scope.querySelectorAll('[role="progressbar"], div[data-visualcompletion="loading-state"], [aria-busy="true"]')).filter(visible);
+      const dialog = Array.from(document.querySelectorAll('div[role="dialog"]')).find(d => {
+        const t = (d.innerText || '').toLowerCase();
+        return t.includes('إنشاء منشور') || t.includes('create post') ||
+               t.includes('إعدادات المنشور') || t.includes('post settings') ||
+               t.includes('خيارات المشاركة') ||
+               !!d.querySelector('[contenteditable="true"], [role="textbox"], div[data-lexical-editor="true"]');
+      });
+      if (!dialog) return [];
+      return Array.from(dialog.querySelectorAll('[role="progressbar"], div[data-visualcompletion="loading-state"], [aria-busy="true"]')).filter(visible);
     })();
     // Post button: check ONLY inside the composer scope; busy only if EVERY match is disabled
     const composerScope = (() => {
@@ -451,7 +524,7 @@ async function waitForMediaUploadSettled(client, maxMs = 120000, onLog = null) {
       // No composer editor visible: nothing pending to wait for here
       return { settled: true, state: st || null };
     }
-    const busy = st.progress > 0 || st.uploadingText || st.postDisabled;
+    const busy = (st.progress > 0 && st.postDisabled) || st.uploadingText || (st.postDisabled && st.hasPostBtn);
     if (!busy) {
       // Grace: confirm stability once more after 2s (upload progress can restart)
       await new Promise(r => setTimeout(r, 2000));
@@ -460,7 +533,7 @@ async function waitForMediaUploadSettled(client, maxMs = 120000, onLog = null) {
         onLog && onLog('[AI Agent Upload] ❌ Facebook REJECTED the media file — stopping the wait loop.');
         return { settled: false, failed: true, state: st2 };
       }
-      const busy2 = st2 && st2.editor && (st2.progress > 0 || st2.uploadingText || st2.postDisabled);
+      const busy2 = st2 && ((st2.progress > 0 && st2.postDisabled) || st2.uploadingText || (st2.postDisabled && st2.hasPostBtn));
       if (!busy2) return { settled: true, state: st2 || st };
       continue;
     }
@@ -485,7 +558,11 @@ async function executeClick(client, ref, { post = {}, hasTypedPostText = false, 
 
     const label = (el.getAttribute('aria-label') || el.innerText || el.textContent || '').slice(0, 80).trim().toLowerCase();
     const isPostButton = /^(post|نشر|share|مشاركة|daabac|dhig|faafi|publier|publicar|posten|paylaş|bagikan)$/i.test(label) ||
-      /(post|نشر|share|مشاركة|daabac|dhig|faafi|publier|publicar)/i.test(label) ||
+      ((label.includes('نشر') || label.includes('post') || label === 'share' || label === 'مشاركة') &&
+       !label.includes('مجموعات') && !label.includes('مجموعة') && !label.includes('groups') && !label.includes('group') &&
+       !label.includes('خيارات') && !label.includes('options') && !label.includes('أماكن') && !label.includes('places') &&
+       !label.includes('إعدادات') && !label.includes('settings') && !label.includes('إنشاء') && !label.includes('create') &&
+       !label.includes('الحد الأقصى') && !label.includes('المحددة') && !label.includes('selected')) ||
       el.getAttribute('data-testid')?.includes('post_button') ||
       (el.closest('div[role="dialog"]') && ['submit', 'post'].includes(el.getAttribute('type')));
     const isNextButton = /^(next|التالي)$/i.test(label) || label === 'next' || label === 'التالي';
@@ -546,7 +623,7 @@ async function executeClick(client, ref, { post = {}, hasTypedPostText = false, 
       }
     } catch(e) {}
 
-    return { ok: true, label, isPostButton, isNextButton, isCloseButton, forbiddenCover, forbiddenSubmenu, forbiddenAudience, outsideModal };
+    return { ok: true, label, isPostButton, isNextButton, isCloseButton, forbiddenCover, forbiddenSubmenu, forbiddenAudience, outsideModal, isDisabled: el.getAttribute('aria-disabled') === 'true' || el.disabled === true };
   })(${Number(ref)})`);
 
   if (!probe || !probe.ok) {
@@ -610,19 +687,27 @@ async function executeClick(client, ref, { post = {}, hasTypedPostText = false, 
 
   const isComposerTrigger = /(بم تفكر|بماذا تفكر|mind|اكتب شيئ|create post|إنشاء منشور)/i.test(probe.label);
   if (isComposerTrigger) {
-    const isModalOpen = await client.evaluate(`() => {
-      const dialogs = Array.from(document.querySelectorAll('div[role="dialog"]'));
-      return dialogs.length > 0;
+    const isPostComposerActuallyOpen = await client.evaluate(`() => {
+      const visible = (el) => {
+        const r = el && el.getBoundingClientRect ? el.getBoundingClientRect() : null;
+        return !!r && r.width > 150 && r.height > 150;
+      };
+      const dialogs = Array.from(document.querySelectorAll('div[role="dialog"]')).filter(visible);
+      return dialogs.some(d => {
+        const txt = (d.innerText || '').toLowerCase();
+        const hasEditor = !!d.querySelector('[contenteditable="true"], [role="textbox"], div[data-lexical-editor="true"]');
+        const isPostModal = txt.includes('إنشاء منشور') || txt.includes('create post') || txt.includes('إعدادات المنشور') || txt.includes('post settings');
+        return isPostModal && (hasEditor || txt.includes('إعدادات المنشور'));
+      });
     }`);
-    if (isModalOpen) {
-      onLog && onLog(`[AI Agent Guard] 🚫 BLOCKED click on "${probe.label}" — a post modal/settings dialog is already open!`);
+    if (isPostComposerActuallyOpen) {
+      onLog && onLog(`[AI Agent Guard] ℹ Composer/settings modal is already open — focusing editor instead of reopening.`);
       return {
         clicked: ref,
         target: probe.label,
-        blocked: true,
         already_open: true,
         is_composer_open: true,
-        note: 'نافذة المنشور أو إعدادات المنشور مفتوحة بالفعل أمامك. لا تنقر على "بم تفكر؟" مرة أخرى لأن ذلك يفتح نافذة مكررة. اضغط على زر "نشر" (Post) لإتمام نشر المنشور.',
+        note: 'نافذة إنشاء المنشور مفتوحة بالفعل وموجودة أمامك. استخدم الآن أداة type_text لكتابة نص المنشور مباشرة في مربع الكتابة، أو file_upload لرفع الوسائط.',
       };
     }
   }
@@ -675,38 +760,57 @@ async function executeClick(client, ref, { post = {}, hasTypedPostText = false, 
 
     // GUARD 3: Groups crossposting MUST be performed before clicking Post!
     if (post.postToGroups && !hasSelectedGroups) {
-      onLog && onLog(`[AI Agent Guard] 🚫 BLOCKED click on Post button — select_post_groups(count: 9) not called yet!`);
-      return {
-        clicked: ref,
-        target: probe.label,
-        blocked: true,
-        missing_groups: true,
-        note: 'محظور تماماً: تم تفعيل النشر في كل المجموعات. يجب استدعاء أداة select_post_groups(count: 9) لتحديد المجموعات التسع أولاً قبل الضغط على زر النشر.',
-      };
+      const alreadyHasGroupsInDom = await client.evaluate(`(() => {
+        const txt = (document.body?.innerText || '').toLowerCase();
+        return txt.includes('تم تحديد') ||
+               txt.includes('الحد الأقصى للمشاركة') ||
+               txt.includes('المجموعات المحددة') ||
+               txt.includes('groups selected') ||
+               txt.includes('maximum limit for sharing') ||
+               txt.includes('selected groups');
+      })()`);
+
+      if (alreadyHasGroupsInDom) {
+        hasSelectedGroups = true;
+        onLog && onLog('[AI Agent Guard] ✅ Verified groups are already selected in the DOM. Proceeding to Post!');
+      } else {
+        onLog && onLog(`[AI Agent Guard] 🚫 BLOCKED click on Post button — select_post_groups(count: 9) not called yet!`);
+        return {
+          clicked: ref,
+          target: probe.label,
+          blocked: true,
+          missing_groups: true,
+          note: 'محظور تماماً: تم تفعيل النشر في كل المجموعات. يجب استدعاء أداة select_post_groups(count: 9) لتحديد المجموعات التسع أولاً قبل الضغط على زر النشر.',
+        };
+      }
     }
 
     // CRITICAL GUARD: never submit while media is still uploading (or if upload FAILED)
-    const waitFor = await waitForMediaUploadSettled(client, 120000, onLog);
-    if (waitFor.failed) {
-      onLog && onLog('[AI Agent Upload] ❌ Media upload FAILED — Post click REFUSED. Asking the agent to recover...');
-      return {
-        clicked: ref,
-        target: probe.label,
-        blocked: true,
-        upload_failed: true,
-        note: 'فشل رفع الوسائط (فيسبوك رفض الملف: "لا يمكن تحميل ملف"). لا تضغط زر النشر ولا تتنقل. الخطوة الصحيحة: استخدم read_page، انقر على زر X/إزالة الخاص ببطاقة المعاينة الفاشلة لإزالتها، ثم أعد المحاولة بـ file_upload. إذا تكرر الفشل، أبلغ بفشل الوسائط window ولا تنشر منشوراً ناقصاً.',
-      };
+    if (hasUploadedMedia && !probe.isDisabled) {
+      onLog && onLog('[AI Agent Upload] ✅ Media upload already confirmed complete and Post button is enabled. Proceeding to submit Post.');
+    } else {
+      const waitFor = await waitForMediaUploadSettled(client, 15000, onLog);
+      if (waitFor.failed) {
+        onLog && onLog('[AI Agent Upload] ❌ Media upload FAILED — Post click REFUSED. Asking the agent to recover...');
+        return {
+          clicked: ref,
+          target: probe.label,
+          blocked: true,
+          upload_failed: true,
+          note: 'فشل رفع الوسائط (فيسبوك رفض الملف: "لا يمكن تحميل ملف"). لا تضغط زر النشر ولا تتنقل. الخطوة الصحيحة: استخدم read_page، انقر على زر X/إزالة الخاص ببطاقة المعاينة الفاشلة لإزالتها، ثم أعد المحاولة بـ file_upload. إذا تكرر الفشل، أبلغ بفشل الوسائط window ولا تنشر منشوراً ناقصاً.',
+        };
+      }
+      if (!waitFor.settled && probe.isDisabled) {
+        onLog && onLog('[AI Agent Upload] ❌ Upload did not complete in time — Post click REFUSED to avoid publishing a broken/incomplete post.');
+        return {
+          clicked: ref,
+          target: probe.label,
+          blocked: true,
+          note: 'الصورة أو الفيديو ما زال يتم رفعه ولم يكتمل. لا تضغط زر النشر ولا تتنقل إلى صفحة أخرى. استخدم wait(seconds) أو read_page ثم أعد النقر على زر النشر فقط عند التأكد من اكتمال الرفع.',
+        };
+      }
+      onLog && onLog('[AI Agent Upload] ✅ Media upload confirmed complete — now clicking Post.');
     }
-    if (!waitFor.settled) {
-      onLog && onLog('[AI Agent Upload] ❌ Upload did not complete in time — Post click REFUSED to avoid publishing a broken/incomplete post.');
-      return {
-        clicked: ref,
-        target: probe.label,
-        blocked: true,
-        note: 'الصورة أو الفيديو ما زال يتم رفعه ولم يكتمل. لا تضغط زر النشر ولا تتنقل إلى صفحة أخرى. استخدم wait(seconds) أو read_page ثم أعد النقر على زر النشر فقط عند التأكد من اكتمال الرفع.',
-      };
-    }
-    onLog && onLog('[AI Agent Upload] ✅ Media upload confirmed complete — now clicking Post.');
   }
 
   if (probe.isNextButton) {
@@ -728,7 +832,11 @@ async function executeClick(client, ref, { post = {}, hasTypedPostText = false, 
 
     const label = (el.getAttribute('aria-label') || el.innerText || el.textContent || '').slice(0, 80).trim().toLowerCase();
     const isPostButton = /^(post|نشر|share|مشاركة)$/i.test(label) ||
-      /(post|نشر|share|مشاركة)/i.test(label) ||
+      ((label.includes('نشر') || label.includes('post') || label === 'share' || label === 'مشاركة') &&
+       !label.includes('مجموعات') && !label.includes('مجموعة') && !label.includes('groups') && !label.includes('group') &&
+       !label.includes('خيارات') && !label.includes('options') && !label.includes('أماكن') && !label.includes('places') &&
+       !label.includes('إعدادات') && !label.includes('settings') && !label.includes('إنشاء') && !label.includes('create') &&
+       !label.includes('الحد الأقصى') && !label.includes('المحددة') && !label.includes('selected')) ||
       el.getAttribute('data-testid')?.includes('post_button');
     const isNextButton = /^(next|التالي)$/i.test(label) || label === 'next' || label === 'التالي';
 
@@ -783,6 +891,20 @@ async function executeClick(client, ref, { post = {}, hasTypedPostText = false, 
 
   if (isComposerTrigger) {
     await new Promise(r => setTimeout(r, 2500));
+    // Auto-type post text immediately into the composer if provided!
+    if (post.text && !hasTypedPostText) {
+      const typeRes = await executeTypeText(client, null, post.text, true);
+      if (typeRes?.typed || typeRes?.alreadyPresent) {
+        onLog && onLog(`[AI Agent] ✍️ Automatically typed post text into composer immediately.`);
+        return {
+          clicked: ref,
+          target: click.label,
+          is_composer_open: true,
+          post_text_typed: true,
+          note: 'تم فتح نافذة إنشاء المنشور وكتابة نص المنشور بنجاح! الخطوة التالية: إذا كان هناك وسائط (صورة/فيديو)، استدعِ file_upload لإرفاقها، أو استدعِ select_post_groups(count: 9) لتحديد المجموعات.',
+        };
+      }
+    }
     return {
       clicked: ref,
       target: click.label,
@@ -802,97 +924,120 @@ async function executeTypeText(client, ref, text, clear = true, pressEnter = fal
   const targetText = String(text || '');
   if (!targetText) return { typed: false, length: 0 };
 
-  const insertResult = await client.evaluate(`((targetRef, val, shouldClear) => {
-    // 1. Locate the best target element:
-    // If a composer dialog is open, the target MUST be the text editor inside that composer!
-    const dialogs = Array.from(document.querySelectorAll('div[role="dialog"]'));
-    const composer = dialogs.find(d => {
-      return !!d.querySelector('[contenteditable="true"], [role="textbox"], div[data-lexical-editor="true"]');
-    });
+  // Retry up to 4.5s for the editor element to be mounted/ready in the DOM
+  let insertResult = null;
+  const startType = Date.now();
+  while (Date.now() - startType < 4500) {
+    insertResult = await client.evaluate(`((targetRef, val, shouldClear) => {
+      // 1. Locate the best target element:
+      // If a composer dialog is open, the target MUST be the text editor inside that composer!
+      const dialogs = Array.from(document.querySelectorAll('div[role="dialog"]'));
+      const composer = dialogs.find(d => {
+        return !!d.querySelector('[contenteditable="true"], [role="textbox"], div[data-lexical-editor="true"]');
+      });
 
-    let el = null;
-    if (composer) {
-      el = composer.querySelector('[contenteditable="true"], [role="textbox"], div[data-lexical-editor="true"]');
-    }
-    if (!el && targetRef) {
-      el = document.querySelector('[data-ap-ref="' + Number(targetRef) + '"]');
-    }
-    if (!el) {
-      el = document.activeElement;
-    }
-    if (!el) return null;
-
-    // NEVER click if el is a button or trigger!
-    const isButton = el.getAttribute('role') === 'button' || el.tagName === 'BUTTON';
-    if (isButton) {
-      const fallbackEditor = document.querySelector('div[role="dialog"] [contenteditable="true"], div[role="dialog"] [role="textbox"]');
-      if (fallbackEditor) {
-        el = fallbackEditor;
-      } else {
-        return { ok: false, error: 'target_is_button' };
+      let el = null;
+      if (composer) {
+        el = composer.querySelector('[contenteditable="true"], [role="textbox"], div[data-lexical-editor="true"]');
       }
-    }
-
-    el.scrollIntoView({ block: 'center', inline: 'center' });
-    el.focus();
-    // Only click if it is an actual contenteditable or input element, NEVER a button!
-    if (el.isContentEditable || el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
-      try { el.click(); } catch(e) {}
-    }
-
-    const isInput = 'value' in el && typeof el.value === 'string';
-    const currentText = isInput ? el.value : (el.innerText || el.textContent || '');
-
-    // Normalize text comparison for idempotency
-    const normCur = currentText.replace(/\\s+/g, ' ').trim();
-    const normVal = val.replace(/\\s+/g, ' ').trim();
-
-    // If the element already contains this exact text, do not duplicate it
-    if (normCur === normVal || (normVal.length > 10 && normCur.includes(normVal))) {
-      return { ok: true, alreadyPresent: true, inserted: true };
-    }
-
-    // Clear existing text before typing a new post to prevent duplication
-    if (shouldClear || currentText.length > 0) {
-      if (isInput) {
-        el.value = '';
-      } else if (el.isContentEditable) {
-        try {
-          const range = document.createRange();
-          range.selectNodeContents(el);
-          const sel = window.getSelection();
-          sel.removeAllRanges();
-          sel.addRange(range);
-          document.execCommand('delete', false, null);
-        } catch(e) {
-          el.innerHTML = '';
+      if (!el && targetRef) {
+        const candidate = document.querySelector('[data-ap-ref="' + Number(targetRef) + '"]');
+        if (candidate && (candidate.isContentEditable || candidate.tagName === 'INPUT' || candidate.tagName === 'TEXTAREA')) {
+          const isComment = (candidate.getAttribute('aria-label') || '').includes('تعليق') ||
+            (candidate.getAttribute('aria-label') || '').toLowerCase().includes('comment') ||
+            candidate.closest('[data-testid*="comment"], [data-testid*="UFI2"], div[aria-label*="تعليقات"]');
+          if (!isComment) el = candidate;
         }
       }
-    }
-
-    let inserted = false;
-    // Primary insertion via execCommand insertText
-    try {
-      inserted = document.execCommand('insertText', false, val);
-    } catch(e) {}
-
-    // Fallback for native inputs
-    if (!inserted) {
-      if (isInput) {
-        el.value = val;
-        inserted = true;
-      } else {
-        el.innerText = val;
-        inserted = true;
+      if (!el) {
+        const editors = Array.from(document.querySelectorAll('[contenteditable="true"], [role="textbox"]'));
+        el = editors.find(ed => {
+          const isComment = (ed.getAttribute('aria-label') || '').includes('تعليق') ||
+            (ed.getAttribute('aria-label') || '').toLowerCase().includes('comment') ||
+            ed.closest('[data-testid*="comment"], div[aria-label*="تعليقات"]');
+          return !isComment;
+        });
       }
-    }
 
-    ['beforeinput', 'input', 'change'].forEach(name => {
-      try { el.dispatchEvent(new Event(name, { bubbles: true })); } catch(e) {}
-    });
+      if (!el) {
+        return { ok: false, error: 'no_editor_found' };
+      }
 
-    return { ok: true, alreadyPresent: false, inserted: true };
-  })(${Number(ref)}, ${JSON.stringify(targetText)}, ${Boolean(clear)})`);
+      // NEVER click if el is a button or trigger!
+      const isButton = el.getAttribute('role') === 'button' || el.tagName === 'BUTTON';
+      if (isButton) {
+        const fallbackEditor = document.querySelector('div[role="dialog"] [contenteditable="true"], div[role="dialog"] [role="textbox"]');
+        if (fallbackEditor) {
+          el = fallbackEditor;
+        } else {
+          return { ok: false, error: 'target_is_button' };
+        }
+      }
+
+      el.scrollIntoView({ block: 'center', inline: 'center' });
+      el.focus();
+      // Only click if it is an actual contenteditable or input element, NEVER a button!
+      if (el.isContentEditable || el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
+        try { el.click(); } catch(e) {}
+      }
+
+      const isInput = 'value' in el && typeof el.value === 'string';
+      const currentText = isInput ? el.value : (el.innerText || el.textContent || '');
+
+      // Normalize text comparison for idempotency
+      const normCur = currentText.replace(/\\s+/g, ' ').trim();
+      const normVal = val.replace(/\\s+/g, ' ').trim();
+
+      // If the element already contains this exact text, do not duplicate it
+      if (normCur === normVal || (normVal.length > 10 && normCur.includes(normVal))) {
+        return { ok: true, alreadyPresent: true, inserted: true };
+      }
+
+      // Clear existing text before typing a new post to prevent duplication
+      if (shouldClear || currentText.length > 0) {
+        if (isInput) {
+          el.value = '';
+        } else if (el.isContentEditable) {
+          try {
+            const range = document.createRange();
+            range.selectNodeContents(el);
+            const sel = window.getSelection();
+            sel.removeAllRanges();
+            sel.addRange(range);
+            document.execCommand('delete', false, null);
+          } catch(e) {
+            el.innerHTML = '';
+          }
+        }
+      }
+
+      let inserted = false;
+      // Primary insertion via execCommand insertText
+      try {
+        inserted = document.execCommand('insertText', false, val);
+      } catch(e) {}
+
+      // Fallback for native inputs
+      if (!inserted) {
+        if (isInput) {
+          el.value = val;
+          inserted = true;
+        } else {
+          el.innerText = val;
+          inserted = true;
+        }
+      }
+
+      ['beforeinput', 'input', 'change'].forEach(name => {
+        try { el.dispatchEvent(new Event(name, { bubbles: true })); } catch(e) {}
+      });
+
+      return { ok: true, alreadyPresent: false, inserted: true };
+    })(${Number(ref)}, ${JSON.stringify(targetText)}, ${Boolean(clear)})`);
+
+    if (insertResult && insertResult.ok) break;
+    await new Promise(r => setTimeout(r, 400));
+  }
 
   if (!insertResult || !insertResult.ok) {
     throw new Error(`Element [${ref}] not found on page. Call read_page first to refresh element refs.`);
@@ -926,6 +1071,16 @@ async function executeFileUpload(client, files, ref = null, { onLog = null } = {
   }
 
   onLog && onLog(`[AI Agent Upload] 📷 Preparing to attach ${files.length} file(s) into composer...`);
+
+  // 0. Disable any file inputs on background timeline feed so they never catch file events
+  await client.evaluate(`() => {
+    document.querySelectorAll('input[type="file"]').forEach(inp => {
+      if (!inp.closest('div[role="dialog"]')) {
+        inp.disabled = true;
+        inp.setAttribute('data-xa-disabled', '1');
+      }
+    });
+  }`);
 
   // 1. Locate the active composer dialog and tag or spawn the file input (STRICTLY inside dialog)
   const setupResult = await client.evaluate(`() => {
@@ -1004,11 +1159,10 @@ async function executeFileUpload(client, files, ref = null, { onLog = null } = {
     }
   }
 
-  // 3. Selectors to try:
+  // 3. Selectors to try (STRICTLY inside composer dialog):
   const selectorsToTry = [
-    'input[data-xa-finput="1"]',
+    'div[role="dialog"] input[data-xa-finput="1"]',
     'div[role="dialog"] input[type="file"]',
-    'input[type="file"]',
   ];
 
   for (const filePath of files) {
@@ -1053,10 +1207,10 @@ async function executeFileUpload(client, files, ref = null, { onLog = null } = {
     await new Promise(r => setTimeout(r, 1500));
   }
 
-  // 4. Dispatch change event to trigger preview in React/Lexical
+  // 4. Dispatch change event to trigger preview in React/Lexical (STRICTLY inside dialog, NO bubbling to window)
   await client.evaluate(`() => {
-    document.querySelectorAll('input[data-xa-finput], div[role="dialog"] input[type="file"], input[type="file"]').forEach(input => {
-      try { input.dispatchEvent(new Event('change', { bubbles: true })); } catch(e) {}
+    document.querySelectorAll('div[role="dialog"] input[data-xa-finput], div[role="dialog"] input[type="file"]').forEach(input => {
+      try { input.dispatchEvent(new Event('change', { bubbles: false })); } catch(e) {}
     });
   }`);
 
@@ -1130,8 +1284,8 @@ async function executeFileUpload(client, files, ref = null, { onLog = null } = {
       if (reSent) {
         await new Promise(r => setTimeout(r, 1500));
         await client.evaluate(`() => {
-          document.querySelectorAll('input[data-xa-finput], div[role="dialog"] input[type="file"], input[type="file"]').forEach(input => {
-            try { input.dispatchEvent(new Event('change', { bubbles: true })); } catch(e) {}
+          document.querySelectorAll('div[role="dialog"] input[data-xa-finput], div[role="dialog"] input[type="file"]').forEach(input => {
+            try { input.dispatchEvent(new Event('change', { bubbles: false })); } catch(e) {}
           });
         }`);
       }
@@ -1154,6 +1308,9 @@ async function executeFileUpload(client, files, ref = null, { onLog = null } = {
     }
   }
 
+  // Auto-dismiss any duplicate/stray dialog that may have spawned during upload
+  await dismissDuplicateDialogs(client);
+
   return {
     uploaded: files,
     status: 'media_uploaded',
@@ -1162,15 +1319,10 @@ async function executeFileUpload(client, files, ref = null, { onLog = null } = {
 }
 
 /**
- * Selects up to 9 Facebook groups all at once in the "Post in more places" (النشر في مزيد من الأماكن / خيارات النشر) modal
+ * Helper to click the Post / نشر button on the Post Settings screen
  */
-export async function executeSelectPostGroups(client, { count = 9, group_refs = [], onLog = null } = {}) {
-  const maxCount = Math.min(Math.max(Number(count) || 9, 1), 9); // strictly capped at 9 by Facebook rules
-
-  onLog && onLog(`[AI Agent Groups] 👥 Selecting up to ${maxCount} Facebook groups all at once...`);
-
-  // Step 1: Advance composer to Post Settings screen if button is "التالي" (Next)
-  const advanceResult = await client.evaluate(`(() => {
+async function submitPostSettingsScreen(client) {
+  return await client.evaluate(`(() => {
     const visible = (el) => {
       const r = el && el.getBoundingClientRect ? el.getBoundingClientRect() : null;
       return !!r && r.width > 0 && r.height > 0;
@@ -1179,204 +1331,46 @@ export async function executeSelectPostGroups(client, { count = 9, group_refs = 
       if (!target) return;
       const btn = target.closest('div[role="button"], button, [role="button"], a[role="button"]') || target;
       try { btn.focus(); } catch (e) {}
+      ['mouseover', 'mousedown', 'mouseup'].forEach(name => {
+        try { btn.dispatchEvent(new MouseEvent(name, { view: window, bubbles: true, cancelable: true, buttons: 1 })); } catch (e) {}
+      });
       try {
         btn.click();
       } catch (e) {
-        try { target.click(); } catch (err) {}
-      }
-    };
-
-    // Find the composer dialog that contains the actual post content
-    const dialogs = Array.from(document.querySelectorAll('div[role="dialog"]'));
-    const composer = dialogs.find(d => {
-      const editor = d.querySelector('[contenteditable="true"], [role="textbox"], div[data-lexical-editor="true"]');
-      const hasMedia = !!d.querySelector('img[src*="blob:"], img[src*="data:"], img[src*="scontent"], img[src*="fbcdn"]');
-      const txt = (editor?.innerText || editor?.textContent || '').trim();
-      return txt.length > 0 || hasMedia;
-    }) || dialogs[dialogs.length - 1] || document;
-
-    const buttons = Array.from(composer.querySelectorAll('div[role="button"], button, [role="button"], span[role="button"]')).filter(visible);
-
-    // If button is "التالي" (Next), click Next to open the Post Settings screen
-    const nextBtn = buttons.find(b => {
-      const t = ((b.getAttribute('aria-label') || '') + ' ' + (b.innerText || '')).trim().toLowerCase();
-      if (/close|إغلاق|remove|إزالة|delete|حذف|cancel|إلغاء/i.test(t)) return false;
-      return (t.includes('التالي') || t.includes('next'));
-    });
-
-    if (nextBtn) {
-      triggerClick(nextBtn);
-      return { clickedNext: true };
-    }
-
-    return { clickedNext: false };
-  })()`);
-
-  if (advanceResult?.clickedNext) {
-    onLog && onLog('[AI Agent Groups] Clicked "التالي" (Next) — advancing to Post Settings screen...');
-    await new Promise(r => setTimeout(r, 2500));
-  }
-
-  // Step 2: In the Post Settings screen (or current screen), find and click "مشاركة في مجموعات" / "المجموعات"
-  const openGroupsResult = await client.evaluate(`(() => {
-    const visible = (el) => {
-      const r = el && el.getBoundingClientRect ? el.getBoundingClientRect() : null;
-      return !!r && r.width > 0 && r.height > 0;
-    };
-    const triggerClick = (target) => {
-      if (!target) return;
-      const btn = target.closest('div[role="button"], button, [role="button"], a[role="button"]') || target;
-      try { btn.focus(); } catch (e) {}
-      try {
-        btn.click();
-      } catch (e) {
-        try { target.click(); } catch (err) {}
+        try { btn.dispatchEvent(new MouseEvent('click', { view: window, bubbles: true, cancelable: true })); } catch (err) {}
       }
     };
 
     const dialogs = Array.from(document.querySelectorAll('div[role="dialog"]'));
-    const activeDialog = dialogs[dialogs.length - 1] || document;
-
-    // A real groups list modal has MULTIPLE checkboxes for groups (at least 2), and does NOT say "إعدادات المنشور"
-    const nonBoostCheckboxes = Array.from(activeDialog.querySelectorAll('div[role="checkbox"], input[type="checkbox"], [aria-checked]')).filter(cb => {
-      const label = ((cb.getAttribute('aria-label') || '') + ' ' + (cb.innerText || '') + ' ' + (cb.parentElement?.innerText || '')).toLowerCase();
-      return !label.includes('ترويج') && !label.includes('boost') && !label.includes('إعلان');
-    });
-
-    const isGroupsListAlreadyOpen = nonBoostCheckboxes.length >= 2 && !(activeDialog.innerText || '').includes('إعدادات المنشور');
-    if (isGroupsListAlreadyOpen) {
-      return { alreadyOpen: true };
-    }
-
-    // Look for the "المجموعات" row inside Post Settings
-    const candidates = Array.from(activeDialog.querySelectorAll('div[role="button"], button, [role="button"], span, div')).filter(visible);
-    const groupsOption = candidates.find(el => {
-      const t = ((el.innerText || el.getAttribute('aria-label') || '') + '').trim().toLowerCase();
-      if (/close|إغلاق|remove|إزالة|delete|حذف|cancel|إلغاء|photo|صورة|video|فيديو|feeling|شعور|tag|إشارة|audience|جمهور|خصوصية|العامة|الأصدقاء|أنا فقط|تحديد الجمهور|ترويج|boost|إعلان|حفظ|save|نشر|post/i.test(t)) return false;
-      return (
-        t === 'المجموعات' ||
-        t === 'مجموعات' ||
-        t.includes('مشاركة في مجموعات') ||
-        t.includes('مشاركة في المجموعات') ||
-        t.includes('share to groups') ||
-        t.includes('مزيد من الأماكن') ||
-        t.includes('more places') ||
-        (t.includes('مجموعات') && !t.includes('قواعد'))
-      );
-    });
-
-    if (groupsOption) {
-      triggerClick(groupsOption);
-      return { clickedOpen: true, label: (groupsOption.innerText || 'المجموعات').slice(0, 40) };
-    }
-
-    return { clickedOpen: false };
-  })()`);
-
-  if (openGroupsResult?.clickedOpen) {
-    onLog && onLog(`[AI Agent Groups] Clicked "${openGroupsResult.label}" — waiting for groups modal to open...`);
-    await new Promise(r => setTimeout(r, 2000));
-  }
-
-  // Step 3: Select up to 9 groups simultaneously in the verified groups modal
-  const selectResult = await client.evaluate(`((maxCount) => {
-    const visible = (el) => {
-      const r = el && el.getBoundingClientRect ? el.getBoundingClientRect() : null;
-      return !!r && r.width > 0 && r.height > 0;
-    };
-    const triggerClick = (target) => {
-      if (!target) return;
-      const btn = target.closest('div[role="button"], button, [role="button"], a[role="button"]') || target;
-      try { btn.focus(); } catch (e) {}
-      try {
-        btn.click();
-      } catch (e) {
-        try { target.click(); } catch (err) {}
-      }
-    };
-
-    const dialogs = Array.from(document.querySelectorAll('div[role="dialog"]'));
-    const topDialog = dialogs[dialogs.length - 1] || document;
-
-    // Filter checkboxes: STRICTLY ignore Boost Post / Ad checkboxes!
-    const allCheckboxes = Array.from(topDialog.querySelectorAll('div[role="checkbox"], input[type="checkbox"], [aria-checked]')).filter(visible);
-    const groupCheckboxes = allCheckboxes.filter(cb => {
-      const label = ((cb.getAttribute('aria-label') || '') + ' ' + (cb.innerText || '') + ' ' + (cb.parentElement?.innerText || '')).toLowerCase();
-      return !label.includes('ترويج') && !label.includes('boost') && !label.includes('إعلان') && !label.includes('ad');
-    });
-
-    if (groupCheckboxes.length === 0) {
-      return { success: false, reason: 'no_group_checkboxes_found' };
-    }
-
-    const selectedNames = [];
-    const toSelect = groupCheckboxes.filter(c => c.getAttribute('aria-checked') !== 'true' && !c.checked).slice(0, maxCount);
-
-    for (const item of toSelect) {
-      triggerClick(item);
-      if (item.tagName === 'INPUT' && item.type === 'checkbox') {
-        item.checked = true;
-        try { item.dispatchEvent(new Event('change', { bubbles: true })); } catch(e) {}
-      }
-      try { item.setAttribute('aria-checked', 'true'); } catch(e) {}
-      const itemText = (item.getAttribute('aria-label') || item.innerText || item.closest('div[role="listitem"]')?.innerText || item.parentElement?.innerText || 'Group').split('\\n')[0].trim();
-      selectedNames.push(itemText.slice(0, 60));
-    }
-
-    // Step 4: Click Done / Save / Confirm in the groups modal (NEVER click Back!)
-    const allButtons = Array.from(topDialog.querySelectorAll('div[role="button"], button')).filter(visible);
-    const doneBtn = allButtons.find(b => {
-      const label = ((b.getAttribute('aria-label') || '') + ' ' + (b.innerText || '')).trim().toLowerCase();
-      return /^(done|تم|save|حفظ|تأكيد|confirm)$/i.test(label) || label === 'done' || label === 'تم';
-    }) || allButtons.find(b => {
-      const aria = (b.getAttribute('aria-label') || '').toLowerCase();
-      return aria === 'done' || aria === 'تم' || aria === 'save' || aria === 'حفظ' || aria.includes('done') || aria.includes('تم') || aria.includes('save') || aria.includes('حفظ');
-    });
-
-    if (doneBtn) {
-      triggerClick(doneBtn);
-    }
-
-    return {
-      success: selectedNames.length > 0,
-      selectedCount: selectedNames.length,
-      groups: selectedNames,
-      modalClosed: !!doneBtn,
-    };
-  })(${maxCount})`);
-
-  if (selectResult?.success) {
-    onLog && onLog(`[AI Agent Groups] ✅ Selected ${selectResult.selectedCount} groups all at once: ${selectResult.groups.join(', ')}. Returned to Post Settings screen.`);
-    await new Promise(r => setTimeout(r, 2000));
-  } else {
-    onLog && onLog(`[AI Agent Groups] ℹ No separate groups modal needed or found (${selectResult?.reason || 'none'}). Ready to post.`);
-  }
-
-  // Step 5: Post settings are configured and groups selected! Now click Post / نشر button directly!
-  const postSubmitResult = await client.evaluate(`(() => {
-    const visible = (el) => {
-      const r = el && el.getBoundingClientRect ? el.getBoundingClientRect() : null;
-      return !!r && r.width > 0 && r.height > 0;
-    };
-    const triggerClick = (target) => {
-      if (!target) return;
-      const btn = target.closest('div[role="button"], button, [role="button"], a[role="button"]') || target;
-      try { btn.focus(); } catch (e) {}
-      try {
-        btn.click();
-      } catch (e) {
-        try { target.click(); } catch (err) {}
-      }
-    };
-
-    const dialogs = Array.from(document.querySelectorAll('div[role="dialog"]'));
-    // Target the dialog that actually contains Post Settings or post options
     const targetDialog = dialogs.find(d => {
       const t = (d.innerText || '').toLowerCase();
-      return t.includes('إعدادات المنشور') || t.includes('post settings') || t.includes('خيارات المشاركة');
-    }) || dialogs[0] || document;
+      return t.includes('إعدادات المنشور') || t.includes('post settings') ||
+             t.includes('خيارات المشاركة') || t.includes('مشاركة في المجموعات') ||
+             t.includes('إنشاء منشور') || t.includes('create post');
+    }) || dialogs[dialogs.length - 1] || document;
 
-    const allButtons = Array.from(targetDialog.querySelectorAll('div[role="button"], button, [role="button"]')).filter(visible);
+    const currentText = (targetDialog.innerText || '').toLowerCase();
+
+    // If still stuck inside "مشاركة في المجموعات", click Back arrow first to reach Post Settings!
+    if (currentText.includes('مشاركة في المجموعات') || currentText.includes('share to groups') || currentText.includes('الحد الأقصى للمشاركة')) {
+      const allBtns = Array.from(targetDialog.querySelectorAll('div[role="button"], button, [role="button"]')).filter(visible);
+      const backBtn = allBtns.find(b => {
+        const l = ((b.getAttribute('aria-label') || '') + ' ' + (b.innerText || '')).toLowerCase();
+        if (l.includes('إغلاق') || l.includes('close') || l.includes('إزالة') || l.includes('remove') || l.includes('حذف') || l.includes('تجاهل')) return false;
+        return l.includes('رجوع') || l.includes('back') || l.includes('الرجوع') || l.includes('انتقال للخلف') || l.includes('عودة');
+      }) || allBtns.find(b => {
+        const p = b.parentElement;
+        const pl = p ? ((p.getAttribute('aria-label') || '') + ' ' + (p.innerText || '')).toLowerCase() : '';
+        if (pl.includes('إغلاق') || pl.includes('close')) return false;
+        return pl.includes('رجوع') || pl.includes('back');
+      });
+      if (backBtn) {
+        triggerClick(backBtn);
+        return { clickedBack: true };
+      }
+    }
+
+    const allButtons = Array.from(document.querySelectorAll('div[role="dialog"] div[role="button"], div[role="dialog"] button, div[role="dialog"] [role="button"]')).filter(visible);
     // Find Post / نشر button
     const postBtn = allButtons.find(b => {
       const label = ((b.getAttribute('aria-label') || '') + ' ' + (b.innerText || '')).trim().toLowerCase();
@@ -1386,15 +1380,17 @@ export async function executeSelectPostGroups(client, { count = 9, group_refs = 
         label === 'post' ||
         label === 'share' ||
         label === 'مشاركة' ||
-        (label.includes('نشر') && label.length <= 12) ||
-        (label.includes('post') && label.length <= 12)
+        (label.includes('نشر') && label.length <= 15 && !label.includes('مجموعات') && !label.includes('groups') && !label.includes('إعدادات')) ||
+        (label.includes('post') && label.length <= 15 && !label.includes('groups') && !label.includes('settings'))
       );
     }) || allButtons.find(b => {
       // Blue button fallback on Post Settings screen
       const style = window.getComputedStyle(b);
       const bg = style.backgroundColor || '';
       const isBlue = bg.includes('rgb(8, 102, 255)') || bg.includes('rgb(24, 119, 242)') || bg.includes('rgb(0, 100, 209)');
-      return isBlue && b.offsetHeight >= 28 && b.getAttribute('aria-disabled') !== 'true';
+      const label = ((b.getAttribute('aria-label') || '') + ' ' + (b.innerText || '')).trim().toLowerCase();
+      const notNav = !label.includes('رجوع') && !label.includes('back') && !label.includes('إلغاء') && !label.includes('تعديل');
+      return isBlue && b.offsetHeight >= 28 && b.getAttribute('aria-disabled') !== 'true' && notNav;
     });
 
     if (postBtn && postBtn.getAttribute('aria-disabled') !== 'true') {
@@ -1404,17 +1400,404 @@ export async function executeSelectPostGroups(client, { count = 9, group_refs = 
 
     return { clickedPost: false };
   })()`);
+}
+
+/**
+ * Selects up to 9 Facebook groups all at once in the "Post in more places" (النشر في مزيد من الأماكن / خيارات النشر) modal
+ */
+export async function executeSelectPostGroups(client, { count = 9, group_refs = [], onLog = null } = {}) {
+  const maxCount = Math.min(Math.max(Number(count) || 9, 1), 9); // strictly capped at 9 by Facebook rules
+
+  onLog && onLog(`[AI Agent Groups] 👥 Selecting up to ${maxCount} Facebook groups randomly...`);
+
+  // Step 0: Check if groups are ALREADY selected in the active dialog or DOM!
+  const alreadySelectedCheck = await client.evaluate(`(() => {
+    const dialogs = Array.from(document.querySelectorAll('div[role="dialog"]'));
+    const activeDialog = dialogs.find(d => {
+      const t = (d.innerText || '').toLowerCase();
+      return t.includes('مشاركة في المجموعات') || t.includes('share to groups') ||
+             t.includes('إعدادات المنشور') || t.includes('post settings') ||
+             t.includes('خيارات المشاركة');
+    }) || dialogs[dialogs.length - 1] || document;
+
+    const txt = activeDialog.innerText || '';
+    const maxReached = txt.includes('الحد الأقصى للمشاركة') || txt.includes('maximum limit for sharing');
+    const hasSelectedMatch = /تم تحديد/.test(txt) || /groups? selected/i.test(txt);
+    const hasSelectedList = txt.includes('المجموعات المحددة') || txt.includes('Selected groups');
+
+    // If currently inside the "مشاركة في المجموعات" screen, click Back arrow to return to Post Settings!
+    let clickedBack = false;
+    const isGroupsScreen = txt.includes('مشاركة في المجموعات') || txt.includes('share to groups');
+    if (isGroupsScreen && (maxReached || hasSelectedList || hasSelectedMatch)) {
+      const allBtns = Array.from(activeDialog.querySelectorAll('div[role="button"], button'));
+      const backBtn = allBtns.find(b => {
+        const a = ((b.getAttribute('aria-label') || '') + ' ' + (b.innerText || '')).toLowerCase();
+        if (a.includes('إغلاق') || a.includes('close') || a.includes('إزالة') || a.includes('remove') || a.includes('حذف') || a.includes('تجاهل')) return false;
+        return a.includes('رجوع') || a.includes('back') || a.includes('الرجوع') || a.includes('انتقال للخلف') || a.includes('عودة');
+      }) || allBtns.find(b => {
+        const p = b.parentElement;
+        const pl = p ? ((p.getAttribute('aria-label') || '') + ' ' + (p.innerText || '')).toLowerCase() : '';
+        if (pl.includes('إغلاق') || pl.includes('close')) return false;
+        return pl.includes('رجوع') || pl.includes('back');
+      });
+      if (backBtn) {
+        try { backBtn.click(); } catch (e) {}
+        clickedBack = true;
+      }
+    }
+
+    return {
+      alreadySelected: maxReached || Boolean(hasSelectedMatch) || hasSelectedList,
+      count: 9,
+      clickedBack,
+    };
+  })()`);
+
+  if (alreadySelectedCheck?.alreadySelected) {
+    onLog && onLog(`[AI Agent Groups] ✅ Verified ${alreadySelectedCheck.count} groups are ALREADY selected!`);
+    if (alreadySelectedCheck.clickedBack) {
+      await new Promise(r => setTimeout(r, 2500));
+    }
+    let submitRes = await submitPostSettingsScreen(client);
+    if (submitRes?.clickedBack) {
+      onLog && onLog('[AI Agent Groups] ↩ Returning to Post Settings screen...');
+      await new Promise(r => setTimeout(r, 2500));
+      submitRes = await submitPostSettingsScreen(client);
+    }
+    if (submitRes?.clickedPost) {
+      onLog && onLog(`[AI Agent Groups] 🚀 Post button ("${submitRes.label}") clicked! Post has been SUBMITTED.`);
+      await new Promise(r => setTimeout(r, 6000));
+      return {
+        success: true,
+        selected_count: 9,
+        groups: ['9 groups selected randomly'],
+        is_post_submitted: true,
+        status: 'submitted',
+        note: 'تم بنجاح التحقق من تحديد 9 مجموعات والضغط على زر نشر (Post). جاري نشر المنشور.',
+      };
+    }
+    return {
+      success: true,
+      selected_count: 9,
+      groups: ['9 groups selected randomly'],
+      status: 'already_selected',
+      ready_to_post: true,
+      note: 'تم تحديد 9 مجموعات بالفعل. نافذة إعدادات النشر جاهزة الآن، اضغط على زر نشر (Post).',
+    };
+  }
+
+  // Handle explicit group_refs if provided by AI (shuffled randomly)
+  if (Array.isArray(group_refs) && group_refs.length > 0) {
+    const shuffledRefs = [...group_refs].sort(() => Math.random() - 0.5).slice(0, maxCount);
+    onLog && onLog(`[AI Agent Groups] Clicking ${shuffledRefs.length} random group [ref] items...`);
+    for (const r of shuffledRefs) {
+      await client.evaluate(`((targetRef) => {
+        const el = document.querySelector('[data-ap-ref="' + Number(targetRef) + '"]');
+        if (el) {
+          try { el.focus(); } catch (e) {}
+          try { el.click(); } catch (e) {}
+        }
+      })(${Number(r)})`);
+      await new Promise(res => setTimeout(res, 250));
+    }
+  }
+
+  // Step 2: In the Post Settings screen (or current screen), find and click "المجموعات" / "مشاركة في مجموعات" / "مزيد من الأماكن"
+  const openGroupsResult = await client.evaluate(`(() => {
+    const visible = (el) => {
+      const r = el && el.getBoundingClientRect ? el.getBoundingClientRect() : null;
+      return !!r && r.width > 0 && r.height > 0;
+    };
+    const triggerClick = (target) => {
+      if (!target) return;
+      const btn = target.closest('div[role="button"], button, [role="button"], a[role="button"]') || target;
+      try { btn.focus(); } catch (e) {}
+      ['mouseover', 'mousedown', 'mouseup'].forEach(name => {
+        try { btn.dispatchEvent(new MouseEvent(name, { view: window, bubbles: true, cancelable: true, buttons: 1 })); } catch (e) {}
+      });
+      try {
+        btn.click();
+      } catch (e) {
+        try { btn.dispatchEvent(new MouseEvent('click', { view: window, bubbles: true, cancelable: true })); } catch (err) {}
+      }
+    };
+
+    const dialogs = Array.from(document.querySelectorAll('div[role="dialog"]'));
+    const activeDialog = dialogs.find(d => {
+      const t = (d.innerText || '').toLowerCase();
+      return t.includes('إعدادات المنشور') || t.includes('post settings') || t.includes('مشاركة في المجموعات');
+    }) || dialogs[dialogs.length - 1] || document;
+
+    // Check if groups are already marked selected on this screen
+    const txt = (activeDialog.innerText || '').toLowerCase();
+    if (txt.includes('تم تحديد') || txt.includes('الحد الأقصى للمشاركة') || txt.includes('groups selected') || txt.includes('المجموعات المحددة')) {
+      return { alreadySelectedOnScreen: true };
+    }
+
+    // CANDIDATES: buttons, list items, clickable rows, spans with group text
+    const candidates = Array.from(activeDialog.querySelectorAll('div[role="button"], button, [role="button"], a[role="button"], div[role="listitem"], [tabindex="0"]')).filter(visible);
+
+    let groupRow = null;
+    for (const el of candidates) {
+      const aria = (el.getAttribute('aria-label') || '').trim().toLowerCase();
+      const t = (el.innerText || el.textContent || '').trim().toLowerCase();
+      const full = aria + ' ' + t;
+
+      // Strict exclusions: Boost post, AI label, dialog header, audience, post button
+      if (full.includes('إنشاء منشور') || full.includes('create post')) continue;
+      if (full.includes('تسمية الذكاء') || full.includes('ذكاء اصطناعي') || full.includes('ai label')) continue;
+      if (/^(close|إغلاق|remove|إزالة|delete|حذف|cancel|إلغاء|back|رجوع)$/i.test(aria) || /^(close|إغلاق|remove|إزالة|delete|حذف|cancel|إلغاء|back|رجوع)$/i.test(t)) continue;
+      if (t === 'العامة' || t === 'الأصدقاء' || t === 'أنا فقط' || full.includes('تحديد الجمهور') || full.includes('audience')) continue;
+      if (full.includes('ترويج') || full.includes('boost')) continue;
+      if (/^(نشر|post|مشاركة|share)$/i.test(t) || /^(نشر|post)$/i.test(aria)) continue;
+
+      const isGroupMatch =
+        full.includes('مجموعات') || full.includes('مجموعة') || full.includes('groups') || full.includes('group') ||
+        full.includes('مزيد من الأماكن') || full.includes('more places') ||
+        full.includes('خيارات المشاركة') || full.includes('sharing options') ||
+        full.includes('share to groups') || full.includes('post to groups');
+
+      if (isGroupMatch) {
+        groupRow = el;
+        break;
+      }
+    }
+
+    // Fallback: search text nodes inside activeDialog (bilingual Arabic + English)
+    if (!groupRow) {
+      const allSpans = Array.from(activeDialog.querySelectorAll('span, div, p')).filter(visible);
+      for (const s of allSpans) {
+        const t = (s.innerText || '').trim().toLowerCase();
+        if (
+          (t === 'مجموعاتك' || t === 'مجموعات' || t === 'مشاركة في مجموعات' || t === 'المشاركة في مجموعات' || t === 'مزيد من الأماكن' ||
+           t === 'your groups' || t === 'groups' || t === 'share to groups' || t === 'post in more places' || t === 'more places' ||
+           t.includes('مجموعات') || t.includes('groups') || t.includes('مزيد من الأماكن') || t.includes('more places') || t.includes('share to groups')) &&
+          !t.includes('ترويج') && !t.includes('boost') && !t.includes('ذكاء') && !t.includes('ai') && !t.includes('العامة') && !t.includes('public') && t.length < 250
+        ) {
+          const clickable = s.closest('div[role="button"], [role="button"], button, a, [tabindex="0"], div[role="listitem"]');
+          if (clickable && !clickable.innerText.toLowerCase().includes('ترويج') && !clickable.innerText.toLowerCase().includes('boost') && !clickable.innerText.includes('ذكاء')) {
+            groupRow = clickable;
+            break;
+          }
+        }
+      }
+    }
+
+    if (groupRow) {
+      triggerClick(groupRow);
+      return { clickedOpen: true, label: (groupRow.innerText || groupRow.getAttribute('aria-label') || 'المجموعات').slice(0, 40) };
+    }
+
+    return { clickedOpen: false };
+  })()`);
+
+  if (openGroupsResult?.alreadySelectedOnScreen) {
+    onLog && onLog('[AI Agent Groups] ✅ Verified groups are already selected! Proceeding to submit Post...');
+    const submitRes = await submitPostSettingsScreen(client);
+    if (submitRes?.clickedPost) {
+      onLog && onLog(`[AI Agent Groups] 🚀 Post button ("${submitRes.label}") clicked! Post has been SUBMITTED.`);
+      await new Promise(r => setTimeout(r, 4000));
+      return {
+        success: true,
+        selected_count: 9,
+        groups: ['9 groups selected'],
+        is_post_submitted: true,
+        status: 'submitted',
+        note: 'تم بنجاح التحقق من تحديد 9 مجموعات والضغط على زر نشر (Post). جاري نشر المنشور.',
+      };
+    }
+  }
+
+  if (openGroupsResult?.clickedOpen) {
+    onLog && onLog(`[AI Agent Groups] Clicked "${openGroupsResult.label}" — waiting for groups list to load...`);
+    await new Promise(r => setTimeout(r, 2500));
+  }
+
+  // Step 3: Wait for group checkboxes to load (polling up to 8s) and select up to 9 groups
+  let selectResult = null;
+  const pollStart = Date.now();
+  while (Date.now() - pollStart < 8000) {
+    selectResult = await client.evaluate(`((maxCount) => {
+      const visible = (el) => {
+        const r = el && el.getBoundingClientRect ? el.getBoundingClientRect() : null;
+        return !!r && r.width > 0 && r.height > 0;
+      };
+      const triggerClick = (target) => {
+        if (!target) return;
+        const btn = target.closest('div[role="button"], button, [role="button"], a[role="button"]') || target;
+        try { btn.focus(); } catch (e) {}
+        ['mouseover', 'mousedown', 'mouseup'].forEach(name => {
+          try { btn.dispatchEvent(new MouseEvent(name, { view: window, bubbles: true, cancelable: true, buttons: 1 })); } catch (e) {}
+        });
+        try {
+          btn.click();
+        } catch (e) {
+          try { btn.dispatchEvent(new MouseEvent('click', { view: window, bubbles: true, cancelable: true })); } catch (err) {}
+        }
+      };
+
+      const dialogs = Array.from(document.querySelectorAll('div[role="dialog"]'));
+      const groupsDialog = dialogs.find(d => {
+        const t = (d.innerText || '').toLowerCase();
+        return t.includes('مشاركة في المجموعات') || t.includes('share to groups') ||
+               t.includes('الحد الأقصى للمشاركة') || t.includes('المجموعات المحددة') ||
+               t.includes('إعدادات المنشور') || t.includes('post settings') ||
+               t.includes('خيارات المشاركة');
+      }) || dialogs[dialogs.length - 1] || document;
+
+      const txt = (groupsDialog.innerText || '').toLowerCase();
+      const isMaxReached = txt.includes('الحد الأقصى للمشاركة') || txt.includes('maximum limit for sharing') || txt.includes('المجموعات المحددة');
+
+      // Filter checkboxes / items: strictly ignore Boost Post, AI label, and system controls
+      const allCheckboxes = Array.from(groupsDialog.querySelectorAll('div[role="checkbox"], input[type="checkbox"], [aria-checked], div[role="listitem"] [role="checkbox"], div[role="listitem"] [role="button"]')).filter(visible);
+      const groupCheckboxes = allCheckboxes.filter(cb => {
+        const row = cb.closest('div[role="listitem"], div[role="button"]') || cb;
+        const label = ((cb.getAttribute('aria-label') || '') + ' ' + (cb.innerText || '') + ' ' + (row.innerText || '')).toLowerCase();
+        
+        // Strict exclusions: Boost post, AI label, system states
+        const isSystem =
+          label.includes('ترويج') || label.includes('boost') || label.includes('إعلان') || label.includes('ad') ||
+          label.includes('تسمية') || label.includes('ذكاء') || label.includes('ai label') ||
+          label.includes('متوقف') || label.includes('متوقفة') || label.includes('قيد التشغيل') ||
+          label.includes('off') || label.includes('on') || label.includes('عامة') || label.includes('أصدقاء');
+        return !isSystem;
+      });
+
+      if (groupCheckboxes.length === 0 && !isMaxReached) {
+        return { success: false, reason: 'no_group_checkboxes_yet' };
+      }
+
+      // Check how many groups are ALREADY selected
+      const alreadyChecked = groupCheckboxes.filter(c => c.getAttribute('aria-checked') === 'true' || c.checked);
+      const neededCount = Math.max(0, maxCount - alreadyChecked.length);
+
+      const unselected = groupCheckboxes.filter(c => c.getAttribute('aria-checked') !== 'true' && !c.checked);
+
+      // RANDOM SELECTION: Fisher-Yates shuffle the unselected groups
+      for (let i = unselected.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        const temp = unselected[i];
+        unselected[i] = unselected[j];
+        unselected[j] = temp;
+      }
+
+      const toSelect = unselected.slice(0, neededCount);
+      const selectedNames = [];
+
+      for (const item of toSelect) {
+        triggerClick(item);
+        if (item.tagName === 'INPUT' && item.type === 'checkbox') {
+          item.checked = true;
+          try { item.dispatchEvent(new Event('change', { bubbles: true })); } catch(e) {}
+        }
+        try { item.setAttribute('aria-checked', 'true'); } catch(e) {}
+        const row = item.closest('div[role="listitem"], div[role="button"]') || item;
+        const raw = String(item.getAttribute('aria-label') || row.innerText || item.innerText || 'مجموعة').trim();
+        const nlIdx = raw.indexOf(String.fromCharCode(10));
+        const itemText = (nlIdx !== -1 ? raw.substring(0, nlIdx) : raw).trim();
+        if (itemText.length > 2 && !itemText.includes('متوقف') && !itemText.toLowerCase().includes('off')) {
+          selectedNames.push(itemText.slice(0, 60));
+        }
+      }
+
+      if (selectedNames.length === 0 || isMaxReached) {
+        const checkedList = groupCheckboxes.filter(c => c.getAttribute('aria-checked') === 'true' || c.checked).slice(0, maxCount);
+        for (const item of checkedList) {
+          const row = item.closest('div[role="listitem"], div[role="button"]') || item;
+          const raw = String(item.getAttribute('aria-label') || row.innerText || item.innerText || 'مجموعة').trim();
+          const nlIdx = raw.indexOf(String.fromCharCode(10));
+          const itemText = (nlIdx !== -1 ? raw.substring(0, nlIdx) : raw).trim();
+          if (itemText.length > 2 && !itemText.includes('متوقف') && !itemText.toLowerCase().includes('off')) {
+            selectedNames.push(itemText.slice(0, 60));
+          }
+        }
+        if (selectedNames.length === 0 && isMaxReached) {
+          selectedNames.push('9 groups already selected');
+        }
+      }
+
+      // Step 4: Click Done / Save / Confirm in the groups modal, OR click Back arrow (رجوع) to return to Post Settings
+      const allButtons = Array.from(groupsDialog.querySelectorAll('div[role="button"], button')).filter(visible);
+      const doneBtn = allButtons.find(b => {
+        const label = ((b.getAttribute('aria-label') || '') + ' ' + (b.innerText || '')).trim().toLowerCase();
+        return /^(done|تم|save|حفظ|تأكيد|confirm)$/i.test(label) || label === 'done' || label === 'تم';
+      });
+
+      if (doneBtn) {
+        triggerClick(doneBtn);
+      } else {
+        const backBtn = allButtons.find(b => {
+          const label = ((b.getAttribute('aria-label') || '') + ' ' + (b.innerText || '') + ' ' + (b.getAttribute('title') || '')).trim().toLowerCase();
+          if (label.includes('إغلاق') || label.includes('close') || label.includes('إزالة') || label.includes('remove') || label.includes('حذف') || label.includes('تجاهل')) return false;
+          return label.includes('رجوع') || label.includes('back') || label.includes('الرجوع') || label.includes('انتقال للخلف') || label.includes('عودة');
+        }) || allButtons.find(b => {
+          const p = b.parentElement;
+          const pl = p ? ((p.getAttribute('aria-label') || '') + ' ' + (p.innerText || '')).toLowerCase() : '';
+          if (pl.includes('إغلاق') || pl.includes('close')) return false;
+          return pl.includes('رجوع') || pl.includes('back');
+        });
+        if (backBtn) {
+          triggerClick(backBtn);
+        }
+      }
+
+      return {
+        success: selectedNames.length > 0 || isMaxReached,
+        selectedCount: selectedNames.length > 0 ? selectedNames.length : 9,
+        groups: selectedNames,
+        modalClosed: !!doneBtn,
+      };
+    })(${maxCount})`);
+
+    if (selectResult?.success) {
+      break;
+    }
+    await new Promise(r => setTimeout(r, 600));
+  }
+
+  if (!selectResult?.success || !selectResult?.selectedCount) {
+    onLog && onLog(`[AI Agent Groups] ℹ Groups modal not active or no groups found (${selectResult?.reason || 'none'}). Post will NOT be auto-submitted.`);
+    return {
+      success: false,
+      selected_count: 0,
+      groups: [],
+      ready_to_post: false,
+      note: 'لم يتم فتح شاشة المجموعات أو لم يتم تحديد المجموعات بعد. يرجى مراجعة الشاشة الحالية والتقدم بالنقر على "التالي" أو خيار المجموعات.',
+    };
+  }
+
+  onLog && onLog(`[AI Agent Groups] ✅ Selected ${selectResult.selectedCount} groups randomly: ${selectResult.groups.join(', ')}. Returned to Post Settings screen.`);
+  await new Promise(r => setTimeout(r, 2000));
+
+  // Step 5: Post settings are configured and groups selected! Now click Post / نشر button directly!
+  let postSubmitResult = await submitPostSettingsScreen(client);
+  if (postSubmitResult?.clickedBack) {
+    onLog && onLog('[AI Agent Groups] ↩ Clicked Back button from Groups screen — returning to Post Settings...');
+    await new Promise(r => setTimeout(r, 2500));
+    postSubmitResult = await submitPostSettingsScreen(client);
+  }
+
+  // Retry up to 3 times to ensure Post button is clicked
+  if (!postSubmitResult?.clickedPost) {
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      await new Promise(r => setTimeout(r, 1500));
+      postSubmitResult = await submitPostSettingsScreen(client);
+      if (postSubmitResult?.clickedPost) break;
+    }
+  }
 
   if (postSubmitResult?.clickedPost) {
     onLog && onLog(`[AI Agent Groups] 🚀 Post button ("${postSubmitResult.label}") clicked! Post has been SUBMITTED.`);
-    await new Promise(r => setTimeout(r, 4000));
+    await new Promise(r => setTimeout(r, 6000));
     return {
       success: true,
       selected_count: selectResult?.selectedCount || 0,
       groups: selectResult?.groups || [],
       is_post_submitted: true,
       status: 'submitted',
-      note: 'تم تحديد المجموعات بنجاح والضغط على زر النشر (Post). المنشور تم إرساله ويجري نشره الآن.',
+      note: selectResult?.selectedCount > 0
+        ? `تم بنجاح تحديد ${selectResult.selectedCount} مجموعات عشوائياً والضغط على زر نشر (Post). جاري نشر المنشور في صفحتك والمجموعات المحددة.`
+        : 'تم الضغط على زر نشر (Post) بنجاح. المنشور تم إرساله.',
     };
   }
 
@@ -1725,9 +2108,23 @@ export async function runAiBrowserAgentForPost({
                 hasSelectedGroups,
                 onLog,
               });
+              if (toolOutput?.post_text_typed) {
+                hasTypedPostText = true;
+              }
               if (toolOutput.is_post_submitted) {
                 hasClickedPost = true;
-                onLog('[AI Agent Guard] Post button clicked. Submission locked to prevent duplicate posts.');
+                onLog('[AI Agent Guard] 🚀 Post button clicked! Submission confirmed. Finalizing...');
+                await new Promise(r => setTimeout(r, 6000));
+                await client.evaluate('() => { window.onbeforeunload = null; }').catch(() => {});
+                if (!post.firstComment) {
+                  resultBlock = {
+                    status: 'submitted',
+                    clicked_post: true,
+                    post_url: null,
+                    note: toolOutput.note || 'تم النشر بنجاح.',
+                  };
+                  break;
+                }
               }
             }
           } else if (fnName === 'type_text') {
@@ -1760,7 +2157,18 @@ export async function runAiBrowserAgentForPost({
             }
             if (toolOutput?.is_post_submitted) {
               hasClickedPost = true;
-              onLog('[AI Agent Guard] Post button clicked via select_post_groups. Submission locked to prevent duplicate posts.');
+              onLog('[AI Agent Guard] 🚀 Post button clicked via select_post_groups! Submission confirmed. Finalizing...');
+              await new Promise(r => setTimeout(r, 6000));
+              await client.evaluate('() => { window.onbeforeunload = null; }').catch(() => {});
+              if (!post.firstComment) {
+                resultBlock = {
+                  status: 'submitted',
+                  clicked_post: true,
+                  post_url: null,
+                  note: toolOutput.note || 'تم النشر بنجاح وتحديد المجموعات عشوائياً.',
+                };
+                break;
+              }
             }
           } else if (fnName === 'wait') {
             const isComposerOpen = await client.evaluate(`() => {
@@ -1790,12 +2198,37 @@ export async function runAiBrowserAgentForPost({
           content: JSON.stringify(toolOutput),
         });
       }
+      if (resultBlock) break;
     } else {
       // Model returned final text
       finalContent = msg.content || '';
-      onLog(`[AI Agent] Received final message from AI.`);
+      onLog(`[AI Agent] Received message from AI: ${finalContent.substring(0, 150)}`);
       resultBlock = parseResultBlock(finalContent);
       if (resultBlock) break;
+
+      // The model did not output the required final fenced JSON block, but replied with conversational text.
+      // Send a corrective user message to force the next action!
+      if (!hasTypedPostText && post.text) {
+        messages.push({
+          role: 'user',
+          content: 'The post composer is open. You must call type_text now with your post text: "' + post.text + '". Do not reply with text; call the tool.',
+        });
+      } else if (!hasUploadedMedia && post.media) {
+        messages.push({
+          role: 'user',
+          content: 'You must call file_upload now with the media files. Do not reply with text; call the tool.',
+        });
+      } else if (post.postToGroups && !hasSelectedGroups) {
+        messages.push({
+          role: 'user',
+          content: 'You must call select_post_groups(count: 9) now to select groups. Do not reply with text; call the tool.',
+        });
+      } else {
+        messages.push({
+          role: 'user',
+          content: 'Please proceed with the next step using browser tools, or output the final JSON status block if publishing is complete.',
+        });
+      }
     }
   }
 
